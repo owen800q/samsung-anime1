@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-HK">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="適合 Samsung 電視的獨立 Anime1 播放器，無需登入。">
+  <meta name="robots" content="noindex,nofollow"><meta name="theme-color" content="#0b1019">
+  <title>Anime1 TV 播放器</title><link rel="icon" href="/favicon.svg"><link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body><main class="shell">
+  <header class="masthead"><a href="/" class="brand"><span class="brand-mark" aria-hidden="true">▶</span><span>Anime1 <strong>TV</strong></span></a><span class="edition">免登入 · 電視相容版</span></header>
+  <section class="workspace">
+    <div class="watch-column">
+      <div class="screen" id="screen">
+        <video id="video" controls playsinline preload="metadata" tabindex="0" aria-label="動畫播放器"></video>
+        <div class="screen-empty" id="empty"><div class="screen-symbol" aria-hidden="true">▶</div><h1 id="empty-title">大螢幕，準備開播。</h1><p id="empty-description">貼上單集網址，或搜尋想看的動畫。</p></div>
+      </div>
+      <div class="now-playing"><div><span class="eyebrow" id="status" role="status" aria-live="polite">準備播放</span><h2 id="title">選擇一集動畫</h2></div><a class="source-link" id="source" target="_blank" rel="noreferrer" hidden>原網頁 ↗</a></div>
+      <div class="controls"><button class="tv-button play-button" id="play" disabled>▶ 播放</button><button class="tv-button secondary" id="reload" disabled>↻ 重新載入</button><button class="tv-button secondary" id="fullscreen" disabled>全螢幕</button></div>
+      <div class="error-box" id="error" role="alert" hidden></div>
+      <nav class="episode-nav" aria-label="集數切換" id="episode-nav" hidden><button class="tv-button outline" id="previous" disabled>上一集</button><button class="tv-button outline" id="next" disabled>下一集</button></nav>
+      <p class="remote-hint">方向鍵選擇按鈕；選取影片後，左右鍵跳轉 10 秒。</p>
+    </div>
+    <aside class="chooser">
+      <div class="chooser-tabs" role="tablist" aria-label="選擇影片方式"><button id="tab-link" role="tab" aria-selected="true" aria-controls="panel-link">單集網址</button><button id="tab-search" role="tab" aria-selected="false" aria-controls="panel-search" tabindex="-1">搜尋動畫</button></div>
+      <section id="panel-link" role="tabpanel" aria-labelledby="tab-link"><form id="load-form"><label for="episode-url">Anime1 影片網址</label><input class="tv-input" id="episode-url" type="url" value="https://anime1.me/30070" placeholder="https://anime1.me/…" required autocomplete="off"><button class="tv-button load-button" id="load" type="submit">載入影片</button></form><p class="field-help">影片準備好後，再按播放。</p><div class="example-card"><span class="eyebrow">你正在看的動畫</span><h3>暴怒千金發誓復仇。</h3><p>第 10 集</p><button class="tv-button outline" id="example">載入這一集</button></div></section>
+      <section id="panel-search" role="tabpanel" aria-labelledby="tab-search" hidden><form id="search-form"><label for="search-query">動畫名稱</label><input id="search-query" class="tv-input" placeholder="例如：暴怒千金" maxlength="80" required><button class="tv-button load-button" id="search" type="submit">搜尋</button></form><p class="field-help" id="search-status" role="status" aria-live="polite"></p><div id="search-error" class="error-box" role="alert" hidden></div><div class="search-results" id="results"></div></section>
+    </aside>
+  </section><footer>獨立相容介面，並非 Anime1 官方網站。影片由原站提供。</footer>
+</main></body></html>
