@@ -1,4 +1,5 @@
 import { resolveEpisode, streamMedia, searchEpisodes, listEpisodes, errorResponse, PlaybackError } from './adapter.js';
+import { browseCatalogue, catalogueMetadata, catalogueSeries, catalogueCover } from './catalog.js';
 
 async function requestJson(request) {
   if (!request.headers.get('content-type')?.startsWith('application/json')) throw new PlaybackError('請使用播放器載入影片。', 415);
@@ -24,7 +25,11 @@ export default {
     try {
       const origin = request.headers.get('origin');
       if ((origin && origin !== url.origin) || request.headers.get('sec-fetch-site') === 'cross-site') throw new PlaybackError('請從播放器網頁開啟影片。', 403);
-      if (url.pathname === '/api/health' && request.method === 'GET') return Response.json({ service: 'samsung-anime1', authentication: 'none', version: 'pages-1' }, { headers: { 'Cache-Control': 'no-store' } });
+      if (url.pathname === '/api/health' && request.method === 'GET') return Response.json({ service: 'samsung-anime1', authentication: 'none', version: 'catalog-1' }, { headers: { 'Cache-Control': 'no-store' } });
+      if (request.method === 'GET' && url.pathname === '/api/catalog') return Response.json(await browseCatalogue(url.searchParams),{headers:{'Cache-Control':'no-store'}});
+      if (request.method === 'GET' && url.pathname === '/api/metadata') return Response.json(await catalogueMetadata(url.searchParams.get('ids')),{headers:{'Cache-Control':'no-store'}});
+      if (request.method === 'GET' && url.pathname === '/api/series') return Response.json(await catalogueSeries(url.searchParams.get('id'),Number(url.searchParams.get('page')||1)),{headers:{'Cache-Control':'no-store'}});
+      if (request.method === 'GET' && url.pathname === '/api/cover') return await catalogueCover(url.searchParams.get('id'));
       if (url.pathname === '/api/resolve' && request.method === 'POST') {
         const body = await requestJson(request);
         return Response.json(await resolveEpisode(body?.url, body?.refresh === true), { headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });

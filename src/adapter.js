@@ -44,7 +44,7 @@ export function plainText(html) {
         return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : "";
     }).replace(/\s+/g, " ").trim().slice(0, 350);
 }
-async function upstream(url, init = {}) {
+export async function upstream(url, init = {}) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 35000);
     try {
@@ -57,7 +57,7 @@ async function upstream(url, init = {}) {
         clearTimeout(timer);
     }
 }
-async function boundedText(r, max = 2000000) {
+export async function boundedText(r, max = 2000000) {
     if (!r.body)
         return "";
     const reader = r.body.getReader();
@@ -263,6 +263,13 @@ export async function listEpisodes(input, page = 1) {
     }
     checkStatus(archive, '讀取集數列表');
     const html = await boundedText(archive);
+    const data = parseEpisodeArchive(html, series, page);
+    while (episodeLists.size >= 32) episodeLists.delete(episodeLists.keys().next().value);
+    episodeLists.set(key, { data, expires: Date.now() + 5 * 60 * 1000 });
+    return data;
+}
+function parseEpisodeArchive(html, series, page) {
+    const target = series.url;
     const episodes = []; const seen = new Set();
     for (const match of html.matchAll(/<h2\b[^>]*class=["'][^"']*entry-title[^"']*["'][^>]*>\s*<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
         try {
@@ -286,9 +293,46 @@ export async function listEpisodes(input, page = 1) {
             if (path === base + '/page/' + (page + 1) || path === base && link.searchParams.get('paged') === String(page + 1)) nextPage = page + 1;
         } catch {}
     }
-    const data = { title: series.title, episodes, nextPage };
+    return { title: series.title, episodes, nextPage };
+}
+export async function listSeriesEpisodes(id, title, page = 1) {
+    if (!/^\d{1,10}$/.test(String(id)) || !Number.isInteger(page) || page < 1 || page > 100) throw new PlaybackError('動畫編號或頁碼無效。', 400);
+    const key = 'series:' + id + ':' + page;
+    const cached = episodeLists.get(key);
+    if (cached && cached.expires > Date.now()) return cached.data;
+    let response = await upstream('https://anime1.me/?cat=' + id);
+    let target = '';
+    if ([301,302,307,308].includes(response.status)) {
+        const next = new URL(response.headers.get('location') || '', 'https://anime1.me');
+        await response.body?.cancel();
+        if (next.origin !== 'https://anime1.me' || next.username || next.password || next.search || next.hash || !/^\/category\/[^/]+\/[^/]+\/?$/.test(next.pathname)) throw new PlaybackError('動畫分類網址無效。');
+        target = next.href.replace(/\/$/, '');
+        response = await upstream(target + (page > 1 ? '/page/' + page + '/' : ''));
+    } else {
+        checkStatus(response, '讀取動畫集數');
+        const html = await boundedText(response);
+        const series = categoryLink(html);
+        target = series.url;
+        if (page === 1) {
+            const data = parseEpisodeArchive(html, {url:target,title}, page);
+            while (episodeLists.size >= 32) episodeLists.delete(episodeLists.keys().next().value);
+            episodeLists.set(key,{data,expires:Date.now()+5*60*1000});
+            return data;
+        }
+        response = await upstream(target + '/page/' + page + '/');
+    }
+    for (let count = 0; [301,302,307,308].includes(response.status) && count < 2; count++) {
+        const location = response.headers.get('location');
+        await response.body?.cancel();
+        const next = new URL(location || '', target);
+        const expected = new URL(target + (page > 1 ? '/page/' + page : '')).pathname;
+        if (!location || next.origin !== 'https://anime1.me' || next.username || next.password || next.search || next.hash || decodeURIComponent(next.pathname).replace(/\/$/, '') !== decodeURIComponent(expected)) throw new PlaybackError('原站集數列表網址已變更。');
+        response = await upstream(next.href);
+    }
+    checkStatus(response, '讀取動畫集數');
+    const data = parseEpisodeArchive(await boundedText(response), {url:target,title}, page);
     while (episodeLists.size >= 32) episodeLists.delete(episodeLists.keys().next().value);
-    episodeLists.set(key, { data, expires: Date.now() + 5 * 60 * 1000 });
+    episodeLists.set(key,{data,expires:Date.now()+5*60*1000});
     return data;
 }
 export async function streamMedia(request) {

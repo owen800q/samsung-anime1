@@ -36,7 +36,8 @@
     if (page === 1) { catalog = null; $('episodes').replaceChildren(); $('series-title').textContent = '正在讀取動畫集數…'; }
     $('episodes-status').textContent = '正在讀取集數…'; $('episodes-error').hidden = true; $('episodes-retry').hidden = true; $('episodes-more').hidden = true;
     try {
-      const response = await fetch('/api/episodes?url=' + encodeURIComponent(url) + '&page=' + page, { signal });
+      const endpoint = url.startsWith('series:') ? '/api/series?id=' + url.slice(7) : '/api/episodes?url=' + encodeURIComponent(url);
+      const response = await fetch(endpoint + '&page=' + page, { signal });
       if (!response.headers.get('content-type')?.includes('application/json')) throw new Error('集數列表暫時無法使用。');
       const data = await response.json(); if (!response.ok) throw new Error(data.error || '讀取集數失敗。');
       if (!Array.isArray(data.episodes) || !data.episodes.length) throw new Error('暫時未有集數資料。');
@@ -55,6 +56,7 @@
       });
       $('episodes-more').hidden = !catalog.nextPage;
       markEpisode();
+      document.dispatchEvent(new CustomEvent('anime1:episodes-ready'));
     } catch (e) {
       if (signal.aborted || id !== listGeneration) return;
       if (!catalog) $('series-title').textContent = '動畫集數';
@@ -63,6 +65,7 @@
     }
   }
   async function prepare(url, refresh = false) {
+    $('home-browser').hidden = true; $('home-detail').hidden = true; $('watch-player').hidden = false; $('home-back').hidden = false;
     const id = ++generation; request?.abort(); request = new AbortController();
     const signal = request.signal;
     video.pause(); video.removeAttribute('src'); video.load(); playback = null;
@@ -131,7 +134,7 @@
   });
   document.addEventListener('keydown', e => {
     const current = document.activeElement;
-    if (current?.matches('input,textarea')) return;
+    if (current?.matches('input,textarea,select')) return;
     if (current?.getAttribute('role') === 'tab' && ['ArrowLeft','ArrowRight'].includes(e.key)) { e.preventDefault(); tab(current.id === 'tab-link' ? 'search' : 'link', true); return; }
     if (e.keyCode === 10252 || e.key === 'MediaPlayPause' || e.code === 'Space' && !current?.matches('button')) { e.preventDefault(); void toggle(); return; }
     if (e.keyCode === 415) { e.preventDefault(); if (video.paused) void toggle(); return; }
@@ -141,7 +144,7 @@
     if (!direction || !current || current === document.body) return;
     const rect = current.getBoundingClientRect(); const x = rect.x + rect.width/2; const y = rect.y + rect.height/2;
     let best = null; let bestScore = Infinity;
-    document.querySelectorAll('button:not(:disabled),input,a[href],video').forEach(candidate => {
+    document.querySelectorAll('button:not(:disabled),input,select,a[href],video').forEach(candidate => {
       if (candidate === current || candidate.closest('[hidden]')) return;
       const r = candidate.getBoundingClientRect(); if (!r.width || !r.height) return;
       const dx=r.x+r.width/2-x, dy=r.y+r.height/2-y; const forward=dx*direction[0]+dy*direction[1];
@@ -150,7 +153,11 @@
     });
     if(best) {e.preventDefault();best.focus();}
   });
-  void loadEpisodes(listInput);
+  document.addEventListener('anime1:open-series', e => {
+    generation++; request?.abort(); video.pause(); video.removeAttribute('src'); video.load(); playback = null; controls(false);
+    $('episode-url').value = ''; void loadEpisodes('series:' + e.detail.id, 1, true);
+  });
+  document.addEventListener('anime1:home', () => { generation++; request?.abort(); video.pause(); controls(false); });
   // Optional browser-standard agent action; there is no ChatGPT network dependency.
   if (document.modelContext?.registerTool) {
     try { Promise.resolve(document.modelContext.registerTool({ name: 'prepare_anime1_episode', title: '準備動畫影片', description: 'Prepare an episode in the visible player without starting playback.', inputSchema: {type:'object',properties:{url:{type:'string'}},required:['url'],additionalProperties:false}, annotations: {readOnlyHint:false,untrustedContentHint:true}, execute: async input => {if(typeof input?.url !== 'string' || !/^https:\/\/anime1\.me\/\d+\/?$/.test(input.url)) throw new Error('請提供 Anime1 單集網址。');return await prepare(input.url);} })).catch(() => {}); } catch {}

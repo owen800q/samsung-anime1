@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import worker from '../src/worker.js';
+import {listSeriesEpisodes} from '../src/adapter.js';
 
 const origin = 'https://test.invalid';
 const list = (url, page = 1) => worker.fetch(new Request(origin + '/api/episodes?url=' + encodeURIComponent(url) + '&page=' + page), {});
@@ -56,4 +57,17 @@ test('archive canonical trailing-slash redirect is supported', async t => {
     return new Response(entry(789,1));
   });
   assert.equal((await list('https://anime1.me/789')).status, 200);
+});
+
+test('catalogue selection follows category and canonical pagination without a manually supplied episode URL', async t => {
+  const requests=[];
+  t.mock.method(globalThis,'fetch',async url=>{
+    requests.push(String(url));
+    if(url==='https://anime1.me/?cat=5555')return new Response(null,{status:301,headers:{Location:'https://anime1.me/category/2026/long-series'}});
+    if(url==='https://anime1.me/category/2026/long-series/page/2/')return new Response(null,{status:301,headers:{Location:'/category/2026/long-series/page/2'}});
+    assert.equal(url,'https://anime1.me/category/2026/long-series/page/2');
+    return new Response(entry(7777,1));
+  });
+  const data=await listSeriesEpisodes(5555,'長篇動畫',2);
+  assert.equal(data.title,'長篇動畫');assert.equal(data.episodes[0].url,'https://anime1.me/7777');assert.equal(requests.length,3);
 });

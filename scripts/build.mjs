@@ -4,8 +4,12 @@ import path from 'node:path';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const out = path.join(root, 'dist');
 await mkdir(out, { recursive: true });
-for (const file of ['index.html','style.css','app.js','favicon.svg','_headers','_routes.json','.assetsignore']) await copyFile(path.join(root,'src',file),path.join(out,file));
-const adapter = (await readFile(path.join(root,'src/adapter.js'),'utf8')).replace(/^export /gm, '');
-const router = (await readFile(path.join(root,'src/worker.js'),'utf8')).replace(/^import .* from '\.\/adapter\.js';\n/, '');
-await writeFile(path.join(out,'_worker.js'), adapter + '\n' + router);
+for (const file of ['index.html','style.css','app.js','home.js','home.css','favicon.svg','_headers','_routes.json','.assetsignore']) await copyFile(path.join(root,'src',file),path.join(out,file));
+const modules=[];
+for(const file of ['catalog-data.js','adapter.js','catalog.js','worker.js']){
+  let code=(await readFile(path.join(root,'src',file),'utf8')).replace(/^import .*;\n/gm,'');
+  if(file!=='worker.js')code=code.replace(/^export /gm,'');
+  modules.push(code);
+}
+await writeFile(path.join(out,'_worker.js'), modules.join('\n'));
 console.log('Built Cloudflare Pages assets and streaming Worker in dist/.');
