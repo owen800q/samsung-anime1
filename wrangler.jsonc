@@ -1,5 +1,12 @@
 {
   "name": "samsung-anime1",
-  "pages_build_output_dir": "./dist",
-  "compatibility_date": "2026-09-10"
+  "main": "./dist/_worker.js",
+  "compatibility_date": "2026-09-10",
+  "workers_dev": true,
+  "build": { "command": "node scripts/build.mjs" },
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*"]
+  }
 }
