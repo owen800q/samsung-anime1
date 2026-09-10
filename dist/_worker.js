@@ -226,6 +226,71 @@ async function searchEpisodes(query) {
     }
     return { episodes: episodes.slice(0, 30) };
 }
+// Episode discovery is independent of the playback session: a listing failure
+// must never stop a video that is already playing.
+const episodeLists = new Map();
+function categoryLink(html) {
+    for (const match of html.matchAll(/<a\b([^>]+)>([\s\S]*?)<\/a>/gi)) {
+        const rel = match[1].match(/\brel=["']([^"']+)["']/i)?.[1] || '';
+        const href = match[1].match(/\bhref=["']([^"']+)["']/i)?.[1];
+        if (!rel.split(/\s+/).includes('category') || !href) continue;
+        try {
+            const url = new URL(plainText(href), 'https://anime1.me');
+            if (url.origin === 'https://anime1.me' && !url.username && !url.password && !url.search && !url.hash && /^\/category\/[^/]+\/[^/]+\/?$/.test(url.pathname)) return { url: url.href.replace(/\/$/, ''), title: plainText(match[2]) };
+        } catch {}
+    }
+    throw new PlaybackError('原站未提供這套動畫的集數列表。', 422);
+}
+async function listEpisodes(input, page = 1) {
+    const url = episodeUrl(input);
+    if (!Number.isInteger(page) || page < 1 || page > 100) throw new PlaybackError('集數列表頁碼無效。', 400);
+    const key = url + ':' + page;
+    const cached = episodeLists.get(key);
+    if (cached && cached.expires > Date.now()) return cached.data;
+    const response = await upstream(url);
+    checkStatus(response, '讀取動畫分類');
+    const series = categoryLink(await boundedText(response));
+    const target = series.url + (page > 1 ? '/page/' + page : '');
+    let archive = await upstream(target);
+    // WordPress can normalize escaping or a trailing slash. Follow only the
+    // same category/page, never a different host or arbitrary redirect.
+    for (let count = 0; [301,302,307,308].includes(archive.status) && count < 2; count++) {
+        const location = archive.headers.get('location');
+        await archive.body?.cancel();
+        const next = new URL(location || '', target);
+        if (!location || next.origin !== 'https://anime1.me' || next.username || next.password || next.search || next.hash || decodeURIComponent(next.pathname).replace(/\/$/, '') !== decodeURIComponent(new URL(target).pathname)) throw new PlaybackError('原站集數列表網址已變更。');
+        archive = await upstream(next.href);
+    }
+    checkStatus(archive, '讀取集數列表');
+    const html = await boundedText(archive);
+    const episodes = []; const seen = new Set();
+    for (const match of html.matchAll(/<h2\b[^>]*class=["'][^"']*entry-title[^"']*["'][^>]*>\s*<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
+        try {
+            const episode = episodeUrl(new URL(plainText(match[1]), 'https://anime1.me').href);
+            if (seen.has(episode)) continue;
+            const title = plainText(match[2]);
+            const number = title.match(/[\[［]([^\]］]+)[\]］]\s*$/)?.[1];
+            episodes.push({ url: episode, title, label: number ? (/^\d+(?:\.\d+)?$/.test(number) ? '第 ' + Number(number) + ' 集' : number) : title });
+            seen.add(episode);
+        } catch {}
+    }
+    if (!episodes.length) throw new PlaybackError('暫時讀不到集數列表，請稍後重試。', 422);
+    episodes.sort((a,b) => a.title.localeCompare(b.title, 'zh-Hant', {numeric:true}));
+    let nextPage = null;
+    const base = decodeURIComponent(new URL(series.url).pathname);
+    for (const match of html.matchAll(/<a\b[^>]*href=["']([^"']+)["']/gi)) {
+        try {
+            const link = new URL(plainText(match[1]), target);
+            if (link.origin !== 'https://anime1.me') continue;
+            const path = decodeURIComponent(link.pathname).replace(/\/$/, '');
+            if (path === base + '/page/' + (page + 1) || path === base && link.searchParams.get('paged') === String(page + 1)) nextPage = page + 1;
+        } catch {}
+    }
+    const data = { title: series.title, episodes, nextPage };
+    while (episodeLists.size >= 32) episodeLists.delete(episodeLists.keys().next().value);
+    episodeLists.set(key, { data, expires: Date.now() + 5 * 60 * 1000 });
+    return data;
+}
 async function streamMedia(request) {
     const id = new URL(request.url).searchParams.get("id") || "";
     if (!/^\d{1,10}$/.test(id)) throw new PlaybackError("影片編號無效。", 400);
@@ -293,6 +358,7 @@ export default {
         return Response.json(await resolveEpisode(body?.url, body?.refresh === true), { headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
       }
       if (url.pathname === '/api/search' && request.method === 'GET') return Response.json(await searchEpisodes(url.searchParams.get('q') || ''), { headers: { 'Cache-Control': 'no-store' } });
+      if (url.pathname === '/api/episodes' && request.method === 'GET') return Response.json(await listEpisodes(url.searchParams.get('url'), Number(url.searchParams.get('page') || 1)), { headers: { 'Cache-Control': 'no-store' } });
       if (url.pathname === '/api/media' && ['GET', 'HEAD'].includes(request.method)) return await streamMedia(request);
       return Response.json({ error: '找不到此功能或不支援此請求方式。' }, { status: 404 });
     } catch (error) { return errorResponse(error); }

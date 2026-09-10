@@ -1,4 +1,4 @@
-import { resolveEpisode, streamMedia, searchEpisodes, errorResponse, PlaybackError } from './adapter.js';
+import { resolveEpisode, streamMedia, searchEpisodes, listEpisodes, errorResponse, PlaybackError } from './adapter.js';
 
 async function requestJson(request) {
   if (!request.headers.get('content-type')?.startsWith('application/json')) throw new PlaybackError('請使用播放器載入影片。', 415);
@@ -30,6 +30,7 @@ export default {
         return Response.json(await resolveEpisode(body?.url, body?.refresh === true), { headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
       }
       if (url.pathname === '/api/search' && request.method === 'GET') return Response.json(await searchEpisodes(url.searchParams.get('q') || ''), { headers: { 'Cache-Control': 'no-store' } });
+      if (url.pathname === '/api/episodes' && request.method === 'GET') return Response.json(await listEpisodes(url.searchParams.get('url'), Number(url.searchParams.get('page') || 1)), { headers: { 'Cache-Control': 'no-store' } });
       if (url.pathname === '/api/media' && ['GET', 'HEAD'].includes(request.method)) return await streamMedia(request);
       return Response.json({ error: '找不到此功能或不支援此請求方式。' }, { status: 404 });
     } catch (error) { return errorResponse(error); }
