@@ -17,7 +17,7 @@ GitHub checks confirm the existing integration is **Workers Builds: samsung-anim
 
 Open the Worker's `workers.dev` address directly on the TV. Paste an Anime1 episode URL or search for a title, choose **載入影片**, then **播放**. Arrow keys navigate controls; with the video focused, left/right seek ten seconds. This deployment does not use Cloudflare Access or any application login. Account-level Access policies, if configured separately, are outside this code.
 
-For a separate Pages project, the same `dist/` supports Pages advanced-mode Functions. The optional `wrangler.pages.jsonc` declares that output directory; deploy it with `npx wrangler pages deploy dist --config wrangler.pages.jsonc`. The existing Workers integration does not need changing.
+For a separate Pages project, the same `dist/` supports Pages advanced-mode Functions. The optional `wrangler.pages.jsonc` declares that output directory; deploy it with `npx wrangler pages deploy dist --config wrangler.pages.jsonc`. The existing Workers integration does not need changing. Cross-device history requires the SQLite Durable Object binding in the main Workers configuration; a separate Pages project would need an externally deployed Durable Object binding.
 
 ## Playback changes
 
@@ -51,3 +51,17 @@ npm test
 Edit `src/`, then rebuild `dist/` before committing. Tests exercise anonymous routes, normal upstream credential handling, range/HEAD responses, validation, and failure behavior with deterministic mocked upstream responses.
 
 `GET /api/health` should return JSON containing `"authentication":"none"`. A live playback check also needs a successful `/api/resolve` response and an MP4 byte-range response from `/api/media`; a healthy landing page alone does not prove video delivery.
+
+## Watch history and device sync
+
+Refresh and browser Back/Forward preserve catalogue filters, search results, anime details and episode selection using URL hash routes. The home page has a Watch History tab; detail pages and episode buttons show saved progress. Selecting an unfinished episode restores its last position after metadata loads, then the viewer presses Play. Completed episodes start again from zero.
+
+All history records (episode, series, position, duration, completion and update revision) persist in **SQLite-backed Cloudflare Durable Objects**, using the transactional storage API. `wrangler.jsonc` creates the `WatchHistory` class with a `new_sqlite_classes` migration and binds `WATCH_HISTORY` on deployment. No ChatGPT account, external auth provider or manually created database ID is required.
+
+Open **裝置同步** and copy the sync code from one device into another. Each randomly generated 128-bit code selects a private history profile; possession of the code permits reading and updating that profile. Tokens are sent only in the Authorization header and hashed before selecting a Durable Object. Different codes have separate histories. Connecting another profile switches histories rather than publishing or merging unrelated profiles.
+
+Progress saves every 15 seconds during playback and on pause, seek, end or leaving the page. The server retains the 500 most recently updated episodes per profile. Local storage is only an offline cache/outbox; it is not the cross-device database. Reconnection, page focus, episode selection and a 30-second foreground poll refresh server history. Revision checks prevent an outdated offline write from silently overwriting newer server progress. Forced browser/TV shutdown can lose the last unsent seconds. History from before this feature cannot be reconstructed.
+
+Resolve no longer waits for a redundant MP4 range probe; the real media request validates status and content type. Resolution has a 60-second overall deadline and the client stops waiting at 65 seconds, with a visible retry message. This reduces serial upstream waits but does not fix an unavailable source server.
+
+Optional browser regression: with Node 24, Playwright and its Chromium available, run `node scripts/check-ux.mjs`. Set `PLAYWRIGHT_CHROMIUM_EXECUTABLE` when using a separately installed Chromium binary. This checks two isolated browser profiles against a local SQLite test storage adapter; it does not replace a deployed Cloudflare smoke test.

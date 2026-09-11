@@ -91,7 +91,10 @@ test('a cold media request resolves its own source session', async t => {
 
 test('upstream denial is surfaced without retrying to bypass it', async t => {
   const requests = mockUpstream(t, '30072', {denied:true});
-  const response = await call('/api/resolve', post({url:'https://anime1.me/30072'}));
+  const prepared = await call('/api/resolve', post({url:'https://anime1.me/30072'}));
+  assert.equal(prepared.status,200);
+  assert.equal(requests.filter(r => r.url.includes('/1959/')).length,0,'resolve must not wait for a redundant media probe');
+  const response = await call((await prepared.json()).media);
   assert.equal(response.status, 502);
   assert.match((await response.json()).error, /403/);
   assert.equal(requests.filter(r => r.url.includes('/1959/')).length, 1);

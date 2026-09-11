@@ -4,3 +4,18 @@
 @media(max-width:1050px){.workspace{grid-template-columns:1fr}.chooser{grid-row:auto;position:static}.catalog-grid{grid-template-columns:repeat(4,minmax(0,1fr))}}
 @media(min-width:601px) and (max-width:900px){.catalog-filters{grid-template-columns:repeat(4,minmax(0,1fr)) auto}.catalog-filters .catalog-query{grid-column:1/5}.catalog-filters>.tv-button{grid-column:5;grid-row:1}}
 @media(max-width:600px){.home-heading h1{font-size:29px}.catalog-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:15px 12px}.catalog-filters{grid-template-columns:1fr 1fr;padding:14px;gap:12px}.catalog-filters .catalog-query{grid-column:1/-1}.catalog-filters>.tv-button{grid-column:1/-1;grid-row:auto}.catalog-presets{gap:8px}.filter-chip{font-size:14px;padding:9px 12px}.detail-top{grid-template-columns:105px minmax(0,1fr);gap:16px;align-items:start}.anime-detail{padding:18px}.detail-heading h1{font-size:21px}.detail-heading>p{font-size:14px}.detail-heading .tv-button{padding:10px;font-size:15px}.edition{display:none}.poster-placeholder strong{font-size:18px}.detail-summary{font-size:16px}}
+.sync-panel { margin: 0 0 24px; padding: 24px; border: 1px solid var(--line, #29496f); border-radius: 20px; background: #102641; }
+.sync-panel h2 { margin-top: 0; }
+.sync-panel input { width: 100%; min-width: 0; padding: 14px; font: inherit; color: inherit; background: #081a30; border: 1px solid #53799d; border-radius: 10px; }
+.sync-fields { display: flex; align-items: end; gap: 12px; margin: 12px 0; }
+.sync-fields label { flex: 1; }
+.sync-panel .tv-button { white-space: nowrap; }
+.resume-reminder { color: #65e8ed; line-height: 1.6; }
+.watch-history { display: grid; gap: 16px; }
+.history-row { padding: 20px; border: 1px solid #325375; border-radius: 16px; background: #102641; }
+.history-row h3 { margin: 0 0 10px; }
+.history-row p { color: #b5c8df; }
+progress { display: block; width: 100%; height: 8px; accent-color: #39d9e9; margin: 12px 0; }
+.history-row .tv-button { margin-top: 12px; }
+.episode-button progress { margin: 4px 0; }
+@media(max-width:640px) { .sync-fields { flex-direction: column; align-items: stretch; } }

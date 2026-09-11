@@ -90,6 +90,12 @@ export async function catalogueSeries(id, page) {
   if(!item)throw new PlaybackError('Anime1 目錄沒有這套動畫。',404);
   return listSeriesEpisodes(item.id,item.title,page);
 }
+export async function catalogueItem(id) {
+  if(!/^\d{1,10}$/.test(id||''))throw new PlaybackError('動畫編號無效。',400);
+  const {items}=await catalogueIndex();const item=items.find(x=>x.id===Number(id));
+  if(!item)throw new PlaybackError('目錄找不到這套動畫。',404);
+  return {item:publicItem(item)};
+}
 export async function catalogueCover(id) {
   if(!/^\d{1,10}$/.test(id||''))throw new PlaybackError('封面編號無效。',400);
   const cache=globalThis.caches?.default;const key=new Request('https://samsung-anime1-cache.invalid/cover/'+id);

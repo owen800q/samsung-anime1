@@ -48,7 +48,7 @@ export async function upstream(url, init = {}) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 35000);
     try {
-        return await fetch(url, { ...init, redirect: "manual", signal: controller.signal, headers: { "User-Agent": UA, ...Object.fromEntries(new Headers(init.headers)) } });
+        return await fetch(url, { ...init, redirect: "manual", signal: init.signal ? AbortSignal.any([controller.signal, init.signal]) : controller.signal, headers: { "User-Agent": UA, ...Object.fromEntries(new Headers(init.headers)) } });
     }
     catch {
         throw new PlaybackError("原站連線逾時或暫時無法連接，請稍後重試。", 504);
@@ -57,12 +57,15 @@ export async function upstream(url, init = {}) {
         clearTimeout(timer);
     }
 }
-export async function boundedText(r, max = 2000000) {
+export async function boundedText(r, max = 2000000, signal) {
     if (!r.body)
         return "";
     const reader = r.body.getReader();
     let timedOut = false;
-    const timer = setTimeout(() => { timedOut = true; void reader.cancel(); }, 35000);
+    const cancel = () => { timedOut = true; void reader.cancel().catch(() => {}); };
+    const timer = setTimeout(cancel, 35000);
+    signal?.addEventListener("abort", cancel, {once:true});
+    if (signal?.aborted) cancel();
     const chunks = [];
     let length = 0;
     try {
@@ -72,7 +75,7 @@ export async function boundedText(r, max = 2000000) {
                 break;
             length += value.length;
             if (length > max) {
-                await reader.cancel();
+                void reader.cancel().catch(() => {});
                 throw new PlaybackError("原站回應過大，無法處理。");
             }
             chunks.push(value);
@@ -80,6 +83,7 @@ export async function boundedText(r, max = 2000000) {
     }
     finally {
         clearTimeout(timer);
+        signal?.removeEventListener("abort", cancel);
         reader.releaseLock();
     }
     if (timedOut)
@@ -142,18 +146,28 @@ async function getSession(input, refresh = false) {
     if (!refresh && cached && cached.exp > Date.now() && cached.cachedAt + 20 * 60 * 1000 > Date.now()) return cached;
     if (pending.has(url)) return pending.get(url);
     if (pending.size >= 16) throw new PlaybackError("播放服務暫時繁忙，請稍後重試。", 429);
-    const promise = loadSession(url).then(session => {
+    const controller = new AbortController();
+    let timer;
+    const deadline = new Promise((_, reject) => { timer = setTimeout(() => { controller.abort(); reject(new PlaybackError("取得播放資料逾時，請重新載入。", 504)); }, 60000); });
+    const promise = Promise.race([loadSession(url, controller.signal), deadline]).then(session => {
         sessions.delete(url);
         while (sessions.size >= MAX_SESSIONS) sessions.delete(sessions.keys().next().value);
         sessions.set(url, { ...session, cachedAt: Date.now() });
         return session;
-    }).finally(() => pending.delete(url));
+    }).finally(() => { clearTimeout(timer); pending.delete(url); });
     pending.set(url, promise);
     return promise;
 }
 export async function resolveEpisode(input, refresh = false) {
     const session = await getSession(input, refresh);
-    return { url: session.pageUrl, title: session.title, media: "/api/media?id=" + new URL(session.pageUrl).pathname.slice(1), previous: session.previous, next: session.next };
+    return { url: session.pageUrl, title: session.title, seriesId: session.seriesId, media: "/api/media?id=" + new URL(session.pageUrl).pathname.slice(1), previous: session.previous, next: session.next };
+}
+function seriesIdFromHTML(html) {
+    for(const a of html.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)){
+        if(plainText(a[2])!=='全集連結')continue;
+        try{const u=new URL(plainText(a[1]),'https://anime1.me');const id=u.searchParams.get('cat');if(u.origin==='https://anime1.me'&&/^\d{1,10}$/.test(id||''))return id;}catch{}
+    }
+    return null;
 }
 function related(html, label) {
     for (const match of html.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
@@ -167,11 +181,11 @@ function related(html, label) {
     }
     return null;
 }
-async function loadSession(input) {
+async function loadSession(input, signal) {
     const url = episodeUrl(input);
-    const page = await upstream(url);
+    const page = await upstream(url, {signal});
     checkStatus(page, "讀取動畫頁面");
-    const html = await boundedText(page);
+    const html = await boundedText(page, 2000000, signal);
     const match = html.match(/\bdata-apireq=["']([^"']+)["']/i);
     if (!match)
         throw new PlaybackError("此頁沒有可播放的單集，或原站要求額外驗證。請使用單集網址。", 422);
@@ -183,11 +197,11 @@ async function loadSession(input) {
     catch {
         throw new PlaybackError("原站播放資料無法解析。");
     }
-    const api = await upstream("https://v.anime1.me/api", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", Origin: "https://anime1.me", Referer: url }, body: new URLSearchParams({ d: data }).toString() });
+    const api = await upstream("https://v.anime1.me/api", { method: "POST", signal, headers: { "Content-Type": "application/x-www-form-urlencoded", Origin: "https://anime1.me", Referer: url }, body: new URLSearchParams({ d: data }).toString() });
     checkStatus(api, "取得播放資料");
     let payload;
     try {
-        payload = JSON.parse(await boundedText(api, 32768));
+        payload = JSON.parse(await boundedText(api, 32768, signal));
     }
     catch {
         throw new PlaybackError("原站播放服務回傳了無法讀取的資料。");
@@ -197,14 +211,9 @@ async function loadSession(input) {
         throw new PlaybackError("原站暫未提供影片，請稍後重新載入。");
     const target = mediaUrl(source.src);
     const credentials = playbackCookies(api.headers, target);
-    const probe = await upstream(target, { headers: { Cookie: credentials.cookie, Range: "bytes=0-1023", Referer: url } });
-    checkStatus(probe, "確認影片連線");
-    const contentType = probe.headers.get("Content-Type") || "";
-    await probe.body?.cancel();
-    if (!contentType.toLowerCase().startsWith("video/mp4"))
-        throw new PlaybackError("原站未回傳影片內容，暫時無法播放。");
+    // Validate MP4 on the actual media request; an extra range probe delays resolve.
     const titleMatch = html.match(/<h[1-3]\b[^>]*class=["'][^"']*entry-title[^"']*["'][^>]*>([\s\S]*?)<\/h[1-3]>/i);
-    return { url: target, pageUrl: url, ...credentials, title: titleMatch ? plainText(titleMatch[1]) : "Anime1 動畫", previous: related(html, "上一集"), next: related(html, "下一集") };
+    return { url: target, pageUrl: url, ...credentials, seriesId: seriesIdFromHTML(html), title: titleMatch ? plainText(titleMatch[1]) : "Anime1 動畫", previous: related(html, "上一集"), next: related(html, "下一集") };
 }
 export async function searchEpisodes(query) {
     if (!query.trim() || query.length > 80)

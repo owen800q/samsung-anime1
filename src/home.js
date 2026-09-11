@@ -1,6 +1,7 @@
 (() => {
   'use strict';
   const $=id=>document.getElementById(id);
+  const S=window.TVState;
   const formats={tv:'TV 動畫',movie:'劇場版',web:'網絡動畫',ova:'OVA / 特別篇',unknown:'動畫'};
   let generation=0,request=null,nextPage=null,state='',activePreset='all',selected=null,returnFocus=null;
   const items=new Map(),details=new Map(),cards=new Map();
@@ -15,13 +16,16 @@
     $('detail-bangumi').hidden=!data?.bangumiUrl;if(data?.bangumiUrl)$('detail-bangumi').href=data.bangumiUrl;
   }
   function updateCard(item,data){details.set(item.id,data);const card=cards.get(item.id);if(card)card.querySelector('.card-score').textContent=data?.score?'★ '+Number(data.score).toFixed(1):'';applyDetail(item,data);}
-  function openAnime(item){
+  function openAnime(item,updateRoute=true){
+    if(updateRoute){const p=S.route();p.set('view','anime');p.set('id',item.id);p.delete('episode');S.navigate(p);}
+
     selected=item.id;returnFocus=cards.get(item.id);
     $('home-browser').hidden=true;$('watch-player').hidden=true;$('home-detail').hidden=false;$('home-back').hidden=false;
     $('detail-title').textContent=item.title;$('detail-facts').textContent=[item.year,item.season?item.season+'季':'',formats[item.format]||'動畫',item.episodes].filter(Boolean).join(' · ');
     $('detail-episodes').disabled=true;$('detail-cover').hidden=!item.bgmId;$('detail-cover').removeAttribute('src');if(item.bgmId)$('detail-cover').src='/api/cover?id='+item.id;
     applyDetail(item,details.get(item.id));$('home-back').focus();
-    document.dispatchEvent(new CustomEvent('anime1:open-series',{detail:{id:item.id}}));
+    document.dispatchEvent(new CustomEvent('anime1:open-series',{detail:{id:item.id,title:item.title}}));
+    reminder();void S.refresh();
     if(item.bgmId&&!details.has(item.id))void json('/api/metadata?ids='+item.id).then(data=>updateCard(item,data.details[item.id])).catch(()=>{});
   }
   function card(item){
@@ -38,7 +42,12 @@
     const missing=list.filter(item=>item.bgmId&&!details.has(item.id));
     for(let i=0;i<missing.length;i+=8){if(id!==generation)return;try{const data=await json('/api/metadata?ids='+missing.slice(i,i+8).map(x=>x.id).join(','),signal);if(id!==generation)return;missing.slice(i,i+8).forEach(item=>updateCard(item,data.details[item.id]));}catch{if(signal.aborted)return;}}
   }
-  async function load(page=1){
+  async function load(page=1,updateRoute=true){
+    const isHistory=activePreset==='history';
+    $('watch-history').hidden=!isHistory;$('catalog-grid').hidden=isHistory;$('catalog-form').hidden=isHistory;
+    if(updateRoute){const p=filters(page);p.set('view','home');p.set('preset',activePreset);S.navigate(p);}
+    if(isHistory){request?.abort();generation++;$('catalog-more').hidden=true;$('catalog-error').hidden=true;$('catalog-retry').hidden=true;$('catalog-notice').hidden=true;renderHistory();void S.refresh();return;}
+
     request?.abort();request=new AbortController();const signal=request.signal,id=++generation;
     if(page===1){items.clear();cards.clear();$('catalog-grid').replaceChildren();}
     $('catalog-status').textContent='正在讀取動畫目錄…';$('catalog-error').hidden=true;$('catalog-retry').hidden=true;$('catalog-more').hidden=true;
@@ -62,6 +71,43 @@
   $('detail-cover').addEventListener('error',()=>{$('detail-cover').hidden=true;});
   $('detail-episodes').addEventListener('click',()=>document.querySelector('.episode-button:not(:disabled)')?.focus());
   document.addEventListener('anime1:episodes-ready',()=>{$('detail-episodes').disabled=false;});
-  $('home-back').addEventListener('click',()=>{document.dispatchEvent(new CustomEvent('anime1:home'));$('watch-player').hidden=true;$('home-detail').hidden=true;$('home-browser').hidden=false;$('home-back').hidden=true;selected=null;(returnFocus?.isConnected?returnFocus:$('catalog-q')).focus();});
-  void load();
+  function reminder(){
+    const last=selected?S.latest(selected):null;
+    $('detail-history').textContent=last?'上次觀看：'+last.title+' · '+(last.completed?'已看完':'看到 '+S.time(last.position)):'尚未有觀看紀錄';
+  }
+  function renderHistory(){
+    const rows=S.all();$('watch-history').replaceChildren();$('catalog-status').textContent=rows.length?'共 '+rows.length+' 項觀看紀錄':'未有觀看紀錄。播放動畫後會自動儲存；其他裝置可用「裝置同步」連接。';
+    for(const entry of rows){
+      const row=document.createElement('article');row.className='history-row';
+      const title=document.createElement('h3');title.textContent=entry.title;
+      const meta=document.createElement('p');meta.textContent=(entry.completed?'已看完':'看到 '+S.time(entry.position)+' / '+S.time(entry.duration))+' · '+new Date(entry.updatedAt).toLocaleString('zh-HK');
+      const bar=document.createElement('progress');bar.max=entry.duration;bar.value=entry.position;bar.setAttribute('aria-label','觀看進度');
+      const play=document.createElement('button');play.className='tv-button';play.textContent=entry.completed?'重新觀看':'繼續觀看';play.addEventListener('click',()=>document.dispatchEvent(new CustomEvent('anime1:watch',{detail:entry})));
+      row.append(title,meta,bar,play);$('watch-history').append(row);
+    }
+  }
+  document.addEventListener('anime1:history-updated',()=>{reminder();if(activePreset==='history')renderHistory();});
+  let routeGeneration=0;
+  async function restoreRoute(){
+    const id=++routeGeneration,p=S.route(),view=p.get('view')||'home';
+    if(view==='watch')return;
+    document.dispatchEvent(new CustomEvent('anime1:home'));
+    $('watch-player').hidden=true;$('home-detail').hidden=true;$('home-browser').hidden=false;$('home-back').hidden=true;selected=null;
+    state=p.get('state')||'';activePreset=p.get('preset')||'all';pressed();
+    for(const key of ['q','year','season','format','genre']){
+      const el=$('catalog-'+key),value=p.get(key)||'';
+      if(el.tagName==='SELECT'&&value&&![...el.options].some(o=>o.value===value)){const o=document.createElement('option');o.value=value;o.textContent=value;el.append(o);}el.value=value;
+    }
+    if(view==='anime'&&/^\d{1,10}$/.test(p.get('id')||'')){
+      $('home-browser').hidden=true;$('home-detail').hidden=false;$('home-back').hidden=false;$('detail-title').textContent='正在讀取動畫…';$('detail-history').textContent='';
+      try{const data=await json('/api/catalog-item?id='+p.get('id'));if(id!==routeGeneration||S.route().get('view')!=='anime'||S.route().get('id')!==p.get('id'))return;openAnime(data.item,false);}
+      catch(e){if(id===routeGeneration)$('detail-title').textContent=e.message;}
+      return;
+    }
+    items.clear();cards.clear();$('catalog-grid').replaceChildren();
+    void load(Math.max(1,Math.min(100,Number(p.get('page'))||1)),false);
+  }
+  $('home-back').addEventListener('click',()=>{const p=S.route();p.set('view','home');for(const key of ['id','episode','series','eq'])p.delete(key);S.navigate(p);void restoreRoute();});
+  document.addEventListener('anime1:route',()=>void restoreRoute());
+  document.dispatchEvent(new CustomEvent('anime1:route'));
 })();
