@@ -93,6 +93,7 @@
   }
   async function prepare(url, refresh = false, opts = {}) {
     saveProgress();watchArmed=false;pendingResume=null;requestedUrl=url;
+    $('watch-player').after($('episode-picker'));
     $('episode-picker').hidden=false;
     if(opts.seriesId!==undefined){selectedSeries=opts.seriesId;selectedTitle=opts.seriesTitle||S.get(episodeId(url))?.seriesTitle||'';}
     else if(!catalog?.episodes.some(item=>item.url===url)){selectedSeries=null;selectedTitle='';}
@@ -184,6 +185,7 @@
     if(best) {e.preventDefault();best.focus();best.scrollIntoView({block:'nearest',inline:'nearest'});}
   });
   document.addEventListener('anime1:open-series', e => {
+    $('detail-comments').before($('episode-picker'));
     stop();requestedUrl='';selectedSeries=String(e.detail.id);selectedTitle=e.detail.title||'';video.removeAttribute('src');video.load();playback=null;controls(false);
     void loadEpisodes('series:' + e.detail.id, 1, true);
   });
