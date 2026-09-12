@@ -49,7 +49,7 @@
   function options(id,values){const el=$(id),value=el.value;const first=el.firstElementChild.cloneNode(true);el.replaceChildren(first);values.forEach(v=>{const option=document.createElement('option');option.value=v;option.textContent=v;el.append(option);});el.value=value;}
   function applyDetail(item,data){
     if(selected!==item.id)return;
-    $('detail-summary').textContent=data?.summary||'暫未有簡介，仍然可以從右邊選集播放。';
+    $('detail-summary').textContent=data?.summary||'暫未有簡介，仍然可以從下方選集播放。';
     $('detail-rating').textContent=data?.score?'Bangumi '+Number(data.score).toFixed(1)+' / 10 · '+data.ratingCount+' 人評分':'';
     $('detail-tags').replaceChildren();(data?.tags||[]).forEach(tag=>{const chip=document.createElement('span');chip.textContent=tag;$('detail-tags').append(chip);});
     $('detail-bangumi').hidden=!data?.bangumiUrl;if(data?.bangumiUrl)$('detail-bangumi').href=data.bangumiUrl;
@@ -134,7 +134,9 @@
   document.addEventListener('anime1:history-updated',()=>{reminder();if(activePreset==='history')renderHistory();});
   let routeGeneration=0;
   async function restoreRoute(){
-    const id=++routeGeneration,p=S.route(),view=p.get('view')||'home';
+    const id=++routeGeneration,p=S.route();
+    if(p.get('view')==='search'){p.set('view','home');p.set('q',p.get('eq')||'');p.delete('eq');p.delete('page');p.set('preset','all');S.navigate(p,true);}
+    const view=p.get('view')||'home';
     resetComments();
     if(view==='watch')return;
     document.dispatchEvent(new CustomEvent('anime1:home'));

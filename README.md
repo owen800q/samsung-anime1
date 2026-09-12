@@ -15,7 +15,7 @@ GitHub checks confirm the existing integration is **Workers Builds: samsung-anim
 
 `wrangler.jsonc` declares the Worker and its `ASSETS` binding. The generated `dist/` is also committed. `/api/*` invokes the Worker; other paths serve static assets. `.assetsignore` excludes server code from public assets. Pushing to the connected production branch triggers deployment.
 
-Open the Worker's `workers.dev` address directly on the TV. Paste an Anime1 episode URL or search for a title, choose **載入影片**, then **播放**. Arrow keys navigate controls; with the video focused, left/right seek ten seconds. This deployment does not use Cloudflare Access or any application login. Account-level Access policies, if configured separately, are outside this code.
+Open the Worker's `workers.dev` address directly on the TV. Browse or search the anime catalogue, select a title, choose an episode below the details, then **播放**. Arrow keys navigate controls; with the video focused, left/right seek ten seconds. This deployment does not use Cloudflare Access or any application login. Account-level Access policies, if configured separately, are outside this code.
 
 For a separate Pages project, the same `dist/` supports Pages advanced-mode Functions. The optional `wrangler.pages.jsonc` declares that output directory; deploy it with `npx wrangler pages deploy dist --config wrangler.pages.jsonc`. The existing Workers integration does not need changing. Cross-device history requires the SQLite Durable Object binding in the main Workers configuration; a separate Pages project would need an externally deployed Durable Object binding.
 
@@ -35,7 +35,7 @@ To refresh the bundled source snapshot and name mappings, run `node scripts/sync
 
 Data attribution: [bangumi-data](https://github.com/bangumi-data/bangumi-data), [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), transformed into a source-to-subject mapping; [Bangumi API](https://bangumi.github.io/api/) for descriptions, tags and ratings; Anime1 for its source index and episode listings. Cover artwork remains the property of its respective rights holders. Attribution links also appear in the interface.
 
-The right sidebar discovers episodes from the current anime's category archive. It shows numbered buttons in episode order, highlights the current episode, and loads older archive pages on demand. Choosing a different anime refreshes the list. Episode discovery is independent of playback, so a list error does not interrupt the video.
+The full-width episode picker below the anime details or player controls discovers episodes from the current anime's category archive. It uses the page scroll instead of a nested scroll area, so TV remote focus remains visible. The redundant URL-entry/sidebar search controls have been removed; old search links open the catalogue search. It shows numbered buttons in episode order, highlights the current episode, and loads older archive pages on demand. Choosing a different anime refreshes the list. Episode discovery is independent of playback, so a list error does not interrupt the video.
 
 The original player obtains three short-lived playback cookies from the Anime1 API. A media request without them returned HTTP 403 during investigation; the same request with the API-issued cookies returned MP4 data. Samsung's exact failure remains unconfirmed without TV network logs.
 
