@@ -1,10 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {parseDanmakuSource,searchDanmaku,resolveDanmaku,getDanmaku,decodeBilibili,normalizeDanmaku} from '../src/danmaku-server.js';
+import {parseDanmakuSource,searchDanmaku,resolveDanmaku,getDanmaku,decodeBilibili,normalizeDanmaku,bahamutFailure} from '../src/danmaku-server.js';
 import worker from '../src/worker.js';
 import {WatchHistory,historyRoute} from '../src/sync-server.js';
 
 const json=x=>Response.json(x);
+test('Bahamut errors preserve bounded public reasons without dumping response bodies',()=>{
+ assert.match(bahamutFailure({error:{message:'系統維修中'},data:null}),/系統維修中/);
+ assert.match(bahamutFailure({data:[]}),/data array/);
+ assert.doesNotMatch(bahamutFailure({data:{unexpected:'DO_NOT_DUMP'}}),/DO_NOT_DUMP/);
+ assert.ok(bahamutFailure({error:'x'.repeat(1000)}).length<300);
+});
 function wire(n){const a=[];do{let b=n%128;n=Math.floor(n/128);a.push(b+(n?128:0));}while(n);return a;}
 const uint=(f,n)=>[...wire(f*8),...wire(n)];
 const str=(f,s)=>{const b=new TextEncoder().encode(s);return [...wire(f*8+2),...wire(b.length),...b];};

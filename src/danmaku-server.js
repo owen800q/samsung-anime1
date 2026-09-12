@@ -98,7 +98,7 @@ export async function getDanmaku(provider,id,segment=1){
     let comments;
     if(provider==='bahamut'){
       const data=await dmFetch('https://api.gamer.com.tw/anime/v1/danmu.php?videoSn='+id);
-      if(!Array.isArray(data.data?.danmu))throw new PlaybackError('動畫瘋彈幕格式無效。',502);
+      if(!Array.isArray(data.data?.danmu))throw new PlaybackError(bahamutFailure(data),502);
       comments=normalizeDanmaku(data.data.danmu.map(x=>({time:Number(x.time)/10,mode:({0:1,1:5,2:4})[x.position],color:x.color,text:x.text})));
     }else{
       const bytes=await dmFetch('https://api.bilibili.com/x/v2/dm/web/seg.so?type=1&oid='+id+'&segment_index='+segment,true);
@@ -106,6 +106,16 @@ export async function getDanmaku(provider,id,segment=1){
     }
     return {provider,id,segment:provider==='bahamut'?1:segment,comments};
   });
+}
+
+// Public upstream errors must not be mistaken for an empty comment list.
+// Include bounded schema metadata (not response bodies) for actionable diagnostics.
+export function bahamutFailure(data){
+  const shape=value=>value===null?'null':Array.isArray(value)?'array':typeof value==='object'?Object.keys(value).filter(k=>/^[a-zA-Z][a-zA-Z0-9_]{0,24}$/.test(k)).slice(0,12).join(','):typeof value;
+  const error=data?.error;
+  const message=typeof error==='string'?error:error?.message||data?.message;
+  const reason=typeof message==='string'?dmTitle(message).replace(/[\u0000-\u001f\u007f]/g,' ').slice(0,160):'';
+  return '動畫瘋未提供彈幕'+(reason?'：'+reason:'。')+'（回應 '+shape(data)+' / data '+shape(data?.data)+'）';
 }
 
 export function validDanmakuSetting(data){
