@@ -1,5 +1,5 @@
 import { resolveEpisode, streamMedia, searchEpisodes, listEpisodes, errorResponse, PlaybackError } from './adapter.js';
-import { browseCatalogue, catalogueMetadata, catalogueSeries, catalogueCover, catalogueItem } from './catalog.js';
+import { browseCatalogue, catalogueMetadata, catalogueSeries, catalogueCover, catalogueItem, catalogueComments } from './catalog.js';
 import { historyRoute } from './sync-server.js';
 
 async function requestJson(request) {
@@ -30,6 +30,7 @@ export default {
       if (url.pathname === '/api/health' && request.method === 'GET') return Response.json({ service: 'samsung-anime1', authentication: 'none', version: 'catalog-1' }, { headers: { 'Cache-Control': 'no-store' } });
       if (request.method === 'GET' && url.pathname === '/api/catalog') return Response.json(await browseCatalogue(url.searchParams),{headers:{'Cache-Control':'no-store'}});
       if (request.method === 'GET' && url.pathname === '/api/catalog-item') return Response.json(await catalogueItem(url.searchParams.get('id')),{headers:{'Cache-Control':'no-store'}});
+      if (request.method === 'GET' && url.pathname === '/api/comments') return Response.json(await catalogueComments(url.searchParams.get('id'),Number(url.searchParams.get('page')||1)),{headers:{'Cache-Control':'no-store'}});
       if (request.method === 'GET' && url.pathname === '/api/metadata') return Response.json(await catalogueMetadata(url.searchParams.get('ids')),{headers:{'Cache-Control':'no-store'}});
       if (request.method === 'GET' && url.pathname === '/api/series') return Response.json(await catalogueSeries(url.searchParams.get('id'),Number(url.searchParams.get('page')||1)),{headers:{'Cache-Control':'no-store'}});
       if (request.method === 'GET' && url.pathname === '/api/cover') return await catalogueCover(url.searchParams.get('id'));

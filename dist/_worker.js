@@ -479,6 +479,29 @@ async function catalogueItem(id) {
   if(!item)throw new PlaybackError('目錄找不到這套動畫。',404);
   return {item:publicItem(item)};
 }
+// Bangumi's website API exposes public short comments (the v0 API does not).
+// Keep this separate from metadata/episodes so an upstream outage cannot block playback.
+async function catalogueComments(id, page = 1) {
+  if(!Number.isInteger(page)||page<1||page>500)throw new PlaybackError('評論頁碼無效。',400);
+  const {item}=await catalogueItem(id);
+  if(!item.bgmId)return {comments:[],total:0,page,nextPage:null,bangumiUrl:null,matched:false};
+  const limit=20,offset=(page-1)*limit;
+  const bangumiUrl='https://bgm.tv/subject/'+item.bgmId+'/comments';
+  let data;
+  try {
+    data=await catalogueJSON('https://next.bgm.tv/p1/subjects/'+item.bgmId+'/comments?limit='+limit+'&offset='+offset,{},300);
+    if(!Array.isArray(data?.data)||!Number.isSafeInteger(data.total)||data.total<0)throw new Error('Invalid comments response');
+  } catch {throw new PlaybackError('Bangumi 評論暫時無法讀取，請稍後重試。',502);}
+  const comments=data.data.slice(0,limit).filter(c=>c&&typeof c.comment==='string'&&c.comment.trim()).map(c=>({
+    id:Number.isSafeInteger(c.id)?c.id:null,
+    author:typeof c.user?.nickname==='string'&&c.user.nickname.trim()?c.user.nickname.slice(0,100):'Bangumi 用戶',
+    text:c.comment.slice(0,10000),
+    rating:Number.isInteger(c.rate)&&c.rate>=1&&c.rate<=10?c.rate:null,
+    updatedAt:Number.isSafeInteger(c.updatedAt)&&c.updatedAt>0&&c.updatedAt<=8640000000000?c.updatedAt:null,
+  }));
+  // Offset follows upstream pagination, including rows omitted for deleted users.
+  return {comments,total:data.total,page,nextPage:offset+limit<data.total&&page<500?page+1:null,bangumiUrl,matched:true};
+}
 async function catalogueCover(id) {
   if(!/^\d{1,10}$/.test(id||''))throw new PlaybackError('封面編號無效。',400);
   const cache=globalThis.caches?.default;const key=new Request('https://samsung-anime1-cache.invalid/cover/'+id);
@@ -573,6 +596,7 @@ export default {
       if (url.pathname === '/api/health' && request.method === 'GET') return Response.json({ service: 'samsung-anime1', authentication: 'none', version: 'catalog-1' }, { headers: { 'Cache-Control': 'no-store' } });
       if (request.method === 'GET' && url.pathname === '/api/catalog') return Response.json(await browseCatalogue(url.searchParams),{headers:{'Cache-Control':'no-store'}});
       if (request.method === 'GET' && url.pathname === '/api/catalog-item') return Response.json(await catalogueItem(url.searchParams.get('id')),{headers:{'Cache-Control':'no-store'}});
+      if (request.method === 'GET' && url.pathname === '/api/comments') return Response.json(await catalogueComments(url.searchParams.get('id'),Number(url.searchParams.get('page')||1)),{headers:{'Cache-Control':'no-store'}});
       if (request.method === 'GET' && url.pathname === '/api/metadata') return Response.json(await catalogueMetadata(url.searchParams.get('ids')),{headers:{'Cache-Control':'no-store'}});
       if (request.method === 'GET' && url.pathname === '/api/series') return Response.json(await catalogueSeries(url.searchParams.get('id'),Number(url.searchParams.get('page')||1)),{headers:{'Cache-Control':'no-store'}});
       if (request.method === 'GET' && url.pathname === '/api/cover') return await catalogueCover(url.searchParams.get('id'));

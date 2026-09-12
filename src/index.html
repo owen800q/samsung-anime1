@@ -20,7 +20,21 @@
         <p id="catalog-notice" class="field-help" hidden></p><div id="catalog-error" class="error-box" role="alert" hidden></div><button id="catalog-retry" class="tv-button outline" hidden>重新載入目錄</button>
         <div id="watch-history" class="watch-history" hidden></div><div id="catalog-grid" class="catalog-grid" aria-label="動畫列表"></div><button id="catalog-more" class="tv-button outline catalog-more" hidden>更多動畫</button>
       </section>
-      <section id="home-detail" class="anime-detail" aria-labelledby="detail-title" hidden><div class="detail-top"><div class="detail-poster"><span id="detail-placeholder" aria-hidden="true">ANIME</span><img id="detail-cover" alt="" hidden></div><div class="detail-heading"><span class="eyebrow">準備開播</span><h1 id="detail-title"></h1><p id="detail-facts"></p><p id="detail-rating"></p><p id="detail-history" class="resume-reminder" role="status"></p><button id="detail-episodes" class="tv-button" disabled>→ 選擇集數</button><p class="field-help">在右邊選一集，再按播放。</p></div></div><div id="detail-tags" class="detail-tags"></div><h2>故事簡介</h2><p id="detail-summary" class="detail-summary"></p><a id="detail-bangumi" class="source-link" target="_blank" rel="noreferrer" hidden>資料來源：Bangumi ↗</a></section>
+      <section id="home-detail" class="anime-detail" aria-labelledby="detail-title" hidden><div class="detail-top"><div class="detail-poster"><span id="detail-placeholder" aria-hidden="true">ANIME</span><img id="detail-cover" alt="" hidden></div><div class="detail-heading"><span class="eyebrow">準備開播</span><h1 id="detail-title"></h1><p id="detail-facts"></p><p id="detail-rating"></p><p id="detail-history" class="resume-reminder" role="status"></p><button id="detail-episodes" class="tv-button" disabled>→ 選擇集數</button><p class="field-help">在右邊選一集，再按播放。</p></div></div><div id="detail-tags" class="detail-tags"></div><h2>故事簡介</h2><p id="detail-summary" class="detail-summary"></p><a id="detail-bangumi" class="source-link" target="_blank" rel="noreferrer" hidden>資料來源：Bangumi ↗</a>
+        <section id="detail-comments" class="detail-comments" aria-labelledby="comments-title" aria-busy="false">
+          <h2 id="comments-title">Bangumi 評論</h2>
+          <p class="field-help">來自 Bangumi 的觀眾短評，內容可能包含劇透。</p>
+          <p id="comments-status" class="comments-status" role="status" tabindex="-1"></p>
+          <div id="comments-list" class="comments-list"></div>
+          <button id="comments-retry" class="tv-button" hidden>重試載入評論</button>
+          <nav id="comments-pagination" class="comments-pagination" aria-label="評論分頁" hidden>
+            <button id="comments-prev" class="tv-button" disabled>← 上一頁</button>
+            <span id="comments-page"></span>
+            <button id="comments-next" class="tv-button" disabled>下一頁 →</button>
+          </nav>
+          <a id="comments-source" class="source-link" target="_blank" rel="noreferrer" hidden>到 Bangumi 查看全部評論 ↗</a>
+        </section>
+      </section>
       <section id="watch-player" hidden>
       <div class="screen" id="screen">
         <video id="video" controls playsinline preload="metadata" tabindex="0" aria-label="動畫播放器"></video>

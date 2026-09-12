@@ -27,6 +27,10 @@ The catalogue refreshes from `https://anime1.me/animelist.json` with a five-minu
 
 Bangumi's public `/v0/subjects/{id}` and `/v0/search/subjects` endpoints provide metadata and topic results. Subject metadata and covers are cached for 24 hours, and cover delivery is restricted to validated Bangumi image URLs. All browser requests stay on the same Cloudflare origin. Neither Bangumi nor ChatGPT login is required. A metadata outage leaves the Anime1 catalogue and playback available; a source catalogue outage displays a clearly marked bundled snapshot.
 
+Anime detail pages also show **Bangumi 評論**: public subject short comments, newest first, with author names, optional scores and dates. Comments load independently of episode selection, 20 per page, with previous/next controls, retry and a link to the original comment page. Unmatched anime and empty comment lists have distinct messages. Comment text is rendered literally, never as HTML.
+
+`GET /api/comments?id=<Anime1 category ID>&page=1` resolves the existing catalogue mapping and reads `https://next.bgm.tv/p1/subjects/{subjectID}/comments?limit=20&offset=…`, cached for five minutes. This is Bangumi's website API, separate from v0; its contract is recorded in [Bangumi's OpenAPI schema](https://github.com/bangumi/server-private/blob/master/openapi.json). No login credentials are forwarded. Website API changes or upstream outages display a retry state without blocking playback. This displays subject short comments, not episode discussions or long reviews.
+
 To refresh the bundled source snapshot and name mappings, run `node scripts/sync-catalog.mjs`, then `npm run build` and commit the generated files. Node 24 users behind an environment proxy can add `--use-env-proxy`. Normal Cloudflare builds are offline and do not download or regenerate these mappings. Newly listed Anime1 titles remain browsable immediately, with metadata added after the next mapping refresh.
 
 Data attribution: [bangumi-data](https://github.com/bangumi-data/bangumi-data), [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), transformed into a source-to-subject mapping; [Bangumi API](https://bangumi.github.io/api/) for descriptions, tags and ratings; Anime1 for its source index and episode listings. Cover artwork remains the property of its respective rights holders. Attribution links also appear in the interface.
@@ -65,3 +69,7 @@ Progress saves every 15 seconds during playback and on pause, seek, end or leavi
 Resolve no longer waits for a redundant MP4 range probe; the real media request validates status and content type. Resolution has a 60-second overall deadline and the client stops waiting at 65 seconds, with a visible retry message. This reduces serial upstream waits but does not fix an unavailable source server.
 
 Optional browser regression: with Node 24, Playwright and its Chromium available, run `node scripts/check-ux.mjs`. Set `PLAYWRIGHT_CHROMIUM_EXECUTABLE` when using a separately installed Chromium binary. This checks two isolated browser profiles against a local SQLite test storage adapter; it does not replace a deployed Cloudflare smoke test.
+
+### Comment checks
+
+Run `npm test` and `npm run build`. With Playwright and Chromium installed, run `node scripts/check-comments.mjs` for fixture-backed browser checks of safe rendering, pagination/retry, reload, stale responses, unmatched/empty states, independent episode loading, and mobile width. Set `PLAYWRIGHT_CHROMIUM_EXECUTABLE` when using a system Chromium. These checks do not verify the live Bangumi service or physical Samsung TV hardware.
