@@ -56,6 +56,25 @@ try{
  await b.locator('.episode-button').nth(1).click();await b.waitForFunction(()=>!document.getElementById('play').disabled);await b.locator('#play').click();await b.evaluate(()=>{const v=document.getElementById('video');v.currentTime=600;v.dispatchEvent(new Event('seeked'));v.pause();});await b.waitForFunction(()=>window.TVState.get('29605')?.dirty===false);
  await a.evaluate(()=>window.TVState.refresh());assert.equal(await a.evaluate(()=>window.TVState.get('29605').position),600);assert.equal(await a.evaluate(()=>window.TVState.get('29599').position),234);
  await a.goto(base+'/#view=anime&id=1959');await a.waitForFunction(()=>document.getElementById('detail-history').textContent.includes('10:00'));assert.match(await a.locator('#detail-history').textContent(),/04/);
- await a.locator('#home-back').click();await a.locator('#tab-search').click();await a.locator('#search-query').fill('測試');await a.locator('#search-form').evaluate(f=>f.requestSubmit());await a.locator('.result').first().waitFor();await a.reload();await a.locator('.result').first().waitFor();assert.equal(await a.locator('#search-query').inputValue(),'測試');
+ await a.goto(base+'/#view=search&eq='+encodeURIComponent('測試'));await a.locator('.anime-card').waitFor();await a.reload();await a.locator('.anime-card').waitFor();assert.equal(await a.locator('#catalog-q').inputValue(),'測試');assert.equal(await a.locator('#episode-picker').isVisible(),false);
+
+ await a.locator('.anime-card').click();await a.locator('.episode-button').first().waitFor();
+ await a.locator('#detail-episodes').click();assert.equal(await a.locator('.episode-button').first().evaluate(el=>el===document.activeElement),true);
+ await a.keyboard.press('Enter');await a.waitForFunction(()=>!document.getElementById('play').disabled);
+ for(const viewport of [{width:1920,height:1080},{width:1536,height:864},{width:1280,height:720},{width:390,height:844}]){
+  await a.setViewportSize(viewport);
+  assert.equal(await a.locator('#episode-url').count(),0);
+  const geometry=await a.evaluate(()=>{
+   const picker=document.getElementById('episode-picker').getBoundingClientRect(),player=document.getElementById('watch-player').getBoundingClientRect(),grid=document.getElementById('episodes');
+   return {below:picker.top>=player.bottom,sameWidth:Math.abs(picker.width-player.width)<1,overflow:getComputedStyle(grid).overflowY,pageFits:document.documentElement.scrollWidth<=innerWidth};
+  });
+  assert.equal(geometry.below,true);assert.equal(geometry.sameWidth,true);assert.equal(geometry.overflow,'visible');assert.equal(geometry.pageFits,true);
+  await a.locator('.episode-button').first().focus();await a.keyboard.press('ArrowRight');assert.equal(await a.locator('.episode-button').nth(1).evaluate(el=>el===document.activeElement),true);
+ }
+ // Failed resolution can be retried without the removed URL form.
+ await a.route('**/api/resolve',route=>route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:'fixture failure'})}));
+ await a.locator('#reload').click();await a.locator('#error').filter({hasText:'fixture failure'}).waitFor();
+ assert.equal(await a.locator('#reload').isEnabled(),true);assert.equal(await a.locator('#reload').evaluate(el=>el===document.activeElement),true);
+ await a.unroute('**/api/resolve');await a.locator('#reload').click();await a.waitForFunction(()=>!document.getElementById('play').disabled);
  assert.deepEqual(errors,[]);console.log('PASS: refresh catalogue/detail/player/search; two isolated devices paired; SQLite history; independent episodes; resume and detail reminder');
 }finally{await browser.close();server.close();sql.close();}

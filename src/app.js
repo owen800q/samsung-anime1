@@ -3,8 +3,8 @@
   const $ = id => document.getElementById(id);
   const S=window.TVState;
   let selectedSeries=null,selectedTitle='',watchArmed=false,pendingResume=null,lastSavedAt=0,lastRecorded='';
-  const video = $('video'); let playback = null; let request = null; let generation = 0; let searchGeneration = 0;
-  let busy = false; let catalog = null; let listRequest = null; let listGeneration = 0; let listInput = $('episode-url').value; let retryPage = 1;
+  const video = $('video'); let playback = null; let request = null; let generation = 0; let requestedUrl = '';
+  let busy = false; let catalog = null; let listRequest = null; let listGeneration = 0; let listInput = ''; let retryPage = 1;
   const status = text => { $('status').textContent = text; };
   const error = text => { $('error').textContent = text; $('error').hidden = !text; };
   const episodeId=url=>String(url||'').match(/\/(\d+)\/?$/)?.[1];
@@ -24,11 +24,10 @@
   function stop(){saveProgress();watchArmed=false;pendingResume=null;generation++;request?.abort();video.pause();controls(false);}
   function controls(loading) {
     busy = loading;
-    $('load').disabled = busy;
-    ['play','reload','fullscreen'].forEach(id => { $(id).disabled = busy || !playback; });
+    ['play','fullscreen'].forEach(id => { $(id).disabled = busy || !playback; });
+    $('reload').disabled = busy || !requestedUrl;
     $('previous').disabled = busy || !playback?.previous;
     $('next').disabled = busy || !playback?.next;
-    document.querySelectorAll('.result').forEach(button => { button.disabled = busy; });
     document.querySelectorAll('.episode-button').forEach(button => { button.disabled = busy; });
   }
   function markEpisode() {
@@ -49,7 +48,11 @@
   }
   async function loadEpisodes(url, page = 1, force = false) {
     if (page === 1 && !force && catalog?.episodes.some(item => item.url === url)) { markEpisode(); return; }
+    $('episode-picker').hidden = false;
     listInput = url; retryPage = page;
+    const focused = document.activeElement;
+    const focusedUrl = focused?.classList.contains('episode-button') ? focused.dataset.url : null;
+    const restoreListFocus = focusedUrl || focused === $('episodes-more') || focused === $('episodes-retry');
     const id = ++listGeneration; listRequest?.abort(); listRequest = new AbortController();
     const signal = listRequest.signal;
     if (page === 1) { catalog = null; $('episodes').replaceChildren(); $('series-title').textContent = '正在讀取動畫集數…'; }
@@ -75,6 +78,11 @@
       });
       $('episodes-more').hidden = !catalog.nextPage;
       markEpisode();
+      if (restoreListFocus && (document.activeElement === focused || document.activeElement === document.body)) {
+        const buttons = [...document.querySelectorAll('.episode-button:not(:disabled)')];
+        const target = buttons.find(button => button.dataset.url === focusedUrl) || buttons[0];
+        target?.focus();target?.scrollIntoView({block:'nearest',inline:'nearest'});
+      }
       document.dispatchEvent(new CustomEvent('anime1:episodes-ready'));
     } catch (e) {
       if (signal.aborted || id !== listGeneration) return;
@@ -84,7 +92,8 @@
     }
   }
   async function prepare(url, refresh = false, opts = {}) {
-    saveProgress();watchArmed=false;pendingResume=null;
+    saveProgress();watchArmed=false;pendingResume=null;requestedUrl=url;
+    $('episode-picker').hidden=false;
     if(opts.seriesId!==undefined){selectedSeries=opts.seriesId;selectedTitle=opts.seriesTitle||S.get(episodeId(url))?.seriesTitle||'';}
     else if(!catalog?.episodes.some(item=>item.url===url)){selectedSeries=null;selectedTitle='';}
     if(opts.route!==false){const p=S.route();p.set('view','watch');p.set('episode',episodeId(url)||'');if(selectedSeries)p.set('series',selectedSeries);else p.delete('series');S.navigate(p);}
@@ -97,7 +106,7 @@
     $('play').textContent = '▶ 播放'; controls(true); error(''); $('empty').hidden = false;
     $('empty-title').textContent = '正在準備你的影片'; $('empty-description').textContent = '取得播放資料';
     $('title').textContent = '準備影片中'; $('source').hidden = true; $('episode-nav').hidden = true;
-    status('正在準備影片…'); $('episode-url').value = url;
+    status('正在準備影片…');
     const sync=S.refresh();
     const slow=setTimeout(()=>{if(id===generation)status('原站回應較慢，仍在取得播放資料…');},12000);
     const timeout=setTimeout(()=>request?.signal===signal&&request.abort('timeout'),65000);
@@ -119,21 +128,20 @@
       return { state: 'ready', title: data.title, url: data.url };
     } catch (e) {
       if (signal.aborted&&signal.reason!=='timeout') return;
-      if(signal.reason==='timeout')e=new Error('取得播放資料逾時，請按「載入影片」重試。');
+      if(signal.reason==='timeout')e=new Error('取得播放資料逾時，請按「重新載入」重試。');
       error(e.message || '連線失敗，請重試。'); status('未能載入'); $('empty-title').textContent = '暫時未能載入'; $('empty-description').textContent = '請查看下方的錯誤提示';
       return { state: 'error', message: e.message };
-    } finally { clearTimeout(slow);clearTimeout(timeout);if (id === generation) controls(false); }
+    } finally { clearTimeout(slow);clearTimeout(timeout);if (id === generation) {controls(false);if (!playback) $('reload').focus();} }
   }
   async function toggle() {
     if (!playback||$('watch-player').hidden) return;
     if (!video.paused) { video.pause(); return; }
     try { await video.play(); } catch (e) { error(e.name === 'NotAllowedError' ? '請再按一次播放鍵，允許電視開始播放。' : '電視未能開始播放，可按「重新載入」更新影片連線。'); }
   }
-  $('load-form').addEventListener('submit', e => { e.preventDefault(); void prepare($('episode-url').value.trim()); });
   $('episodes-retry').addEventListener('click', () => void loadEpisodes(listInput, retryPage, true));
   $('episodes-more').addEventListener('click', () => { if (catalog?.nextPage) void loadEpisodes(listInput, catalog.nextPage); });
   $('play').addEventListener('click', () => void toggle());
-  $('reload').addEventListener('click', () => { if (playback) void prepare(playback.url, true); });
+  $('reload').addEventListener('click', () => { if (requestedUrl) void prepare(requestedUrl, true, {seriesId:selectedSeries,seriesTitle:selectedTitle}); });
   $('previous').addEventListener('click', () => { if (playback?.previous) void prepare(playback.previous.url); });
   $('next').addEventListener('click', () => { if (playback?.next) void prepare(playback.next.url); });
   $('fullscreen').addEventListener('click', async () => {
@@ -155,29 +163,9 @@
   document.addEventListener('anime1:history-updated',markEpisode);
   document.addEventListener('anime1:profile-changing',()=>{stop();lastRecorded='';});
   document.addEventListener('anime1:profile-changed',()=>{if(playback&&!$('watch-player').hidden)void prepare(playback.url,false,{seriesId:playback.seriesId,route:false});});
-  function tab(name, focus = false) {
-    ['link','search'].forEach(key => { const button = $('tab-' + key); const active = key === name; button.setAttribute('aria-selected', String(active)); button.tabIndex = active ? 0 : -1; $('panel-' + key).hidden = !active; });
-    if (focus) $('tab-' + name).focus();
-  }
-  ['link','search'].forEach(name => $('tab-' + name).addEventListener('click', () => tab(name)));
-  $('search-form').addEventListener('submit', async e => {
-    e.preventDefault(); const q = $('search-query').value.trim(); if (!q) return;
-    const p=S.route();p.set('view','search');p.set('eq',q);S.navigate(p);
-    const id = ++searchGeneration; $('search').disabled = true; $('search-status').textContent = '搜尋中…'; $('search-error').hidden = true; $('results').replaceChildren();
-    try {
-      const response = await fetch('/api/search?q=' + encodeURIComponent(q));
-      if (!response.headers.get('content-type')?.includes('application/json')) throw new Error('搜尋服務暫時無法使用。');
-      const data = await response.json(); if (!response.ok) throw new Error(data.error || '搜尋失敗');
-      if (!Array.isArray(data.episodes)) throw new Error('搜尋資料不完整。'); if (id !== searchGeneration) return;
-      $('search-status').textContent = data.episodes.length ? '找到 ' + data.episodes.length + ' 集' : '未找到單集，試下縮短動畫名稱。';
-      data.episodes.forEach(item => { const button = document.createElement('button'); button.className = 'result'; button.textContent = '▶  ' + item.title; button.addEventListener('click', () => void prepare(item.url)); $('results').append(button); });
-    } catch (e) { if (id === searchGeneration) { $('search-status').textContent = ''; $('search-error').textContent = e.message; $('search-error').hidden = false; } }
-    finally { if (id === searchGeneration) $('search').disabled = false; }
-  });
   document.addEventListener('keydown', e => {
     const current = document.activeElement;
     if (current?.matches('input,textarea,select')) return;
-    if (current?.getAttribute('role') === 'tab' && ['ArrowLeft','ArrowRight'].includes(e.key)) { e.preventDefault(); tab(current.id === 'tab-link' ? 'search' : 'link', true); return; }
     if (e.keyCode === 10252 || e.key === 'MediaPlayPause' || e.code === 'Space' && !current?.matches('button')) { e.preventDefault(); void toggle(); return; }
     if (e.keyCode === 415) { e.preventDefault(); if (video.paused) void toggle(); return; }
     if (e.keyCode === 19) { e.preventDefault(); video.pause(); return; }
@@ -193,18 +181,17 @@
       if (forward <= 1) return; const score=forward+Math.abs(dx*direction[1]-dy*direction[0])*3;
       if(score<bestScore) {best=candidate;bestScore=score;}
     });
-    if(best) {e.preventDefault();best.focus();}
+    if(best) {e.preventDefault();best.focus();best.scrollIntoView({block:'nearest',inline:'nearest'});}
   });
   document.addEventListener('anime1:open-series', e => {
-    stop();selectedSeries=String(e.detail.id);selectedTitle=e.detail.title||'';video.removeAttribute('src');video.load();playback=null;controls(false);
-    $('episode-url').value = ''; void loadEpisodes('series:' + e.detail.id, 1, true);
+    stop();requestedUrl='';selectedSeries=String(e.detail.id);selectedTitle=e.detail.title||'';video.removeAttribute('src');video.load();playback=null;controls(false);
+    void loadEpisodes('series:' + e.detail.id, 1, true);
   });
-  document.addEventListener('anime1:home',stop);
+  document.addEventListener('anime1:home',()=>{stop();listGeneration++;listRequest?.abort();$('episode-picker').hidden=true;});
   document.addEventListener('anime1:watch',e=>void prepare('https://anime1.me/'+e.detail.episodeId,false,{seriesId:e.detail.seriesId,seriesTitle:e.detail.seriesTitle}));
   document.addEventListener('anime1:route',()=>{
     const p=S.route();
     if(p.get('view')==='watch'&&/^\d{1,10}$/.test(p.get('episode')||''))void prepare('https://anime1.me/'+p.get('episode'),false,{route:false,seriesId:p.get('series')});
-    else if(p.get('view')==='search'){stop();tab('search');$('search-query').value=p.get('eq')||'';if($('search-query').value)$('search-form').requestSubmit();}
   });
   // Optional browser-standard agent action; there is no ChatGPT network dependency.
   if (document.modelContext?.registerTool) {
