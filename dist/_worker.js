@@ -615,7 +615,7 @@ async function getDanmaku(provider,id,segment=1){
   return dmCached(provider+':'+id+':'+(provider==='bahamut'?1:segment),async()=>{
     let comments;
     if(provider==='bahamut'){
-      const data=await dmFetch('https://api.gamer.com.tw/anime/v1/danmu.php?videoSn='+id);
+      const data=await dmFetch('https://api.gamer.com.tw/anime/v1/danmu.php?geo=TW%2CHK&videoSn='+id);
       if(!Array.isArray(data.data?.danmu))throw new PlaybackError(bahamutFailure(data),502);
       comments=normalizeDanmaku(data.data.danmu.map(x=>({time:Number(x.time)/10,mode:({0:1,1:5,2:4})[x.position],color:x.color,text:x.text})));
     }else{

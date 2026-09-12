@@ -46,6 +46,7 @@ test('Bilibili BV split pages and season episodes retain individual CIDs',async 
 test('comment requests normalize Bahamut deciseconds and fetch just one Bilibili segment',async t=>{
  const urls=[];t.mock.method(globalThis,'fetch',async url=>{urls.push(String(url));return String(url).includes('gamer.com')?json({data:{danmu:[{time:15,position:0,color:'#ffffff',text:'scroll'},{time:20,position:1,text:'top'},{time:30,position:2,text:'bottom'}]}}):new Response(new Uint8Array(elem(361000,1,'later')));});
  assert.deepEqual((await getDanmaku('bahamut','10')).comments.map(x=>[x.time,x.mode]),[[1.5,1],[2,5],[3,4]]);
+ assert.equal(new URL(urls[0]).searchParams.get('geo'),'TW,HK','Bahamut requires the regional comment-pool parameter');
  assert.equal((await getDanmaku('bilibili','100',2)).comments[0].time,361);assert.equal(urls.length,2);assert.match(urls[1],/segment_index=2$/);
  await assert.rejects(getDanmaku('bilibili','https://evil/',1));await assert.rejects(getDanmaku('bilibili','100',241));assert.equal(urls.length,2);
 });
