@@ -94,7 +94,7 @@ export async function catalogueItem(id) {
   if(!/^\d{1,10}$/.test(id||''))throw new PlaybackError('動畫編號無效。',400);
   const {items}=await catalogueIndex();const item=items.find(x=>x.id===Number(id));
   if(!item)throw new PlaybackError('目錄找不到這套動畫。',404);
-  return {item:publicItem(item)};
+  return {item:{...publicItem(item),aliases:item.aliases||[]}};
 }
 // Bangumi's website API exposes public short comments (the v0 API does not).
 // Keep this separate from metadata/episodes so an upstream outage cannot block playback.

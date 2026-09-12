@@ -73,3 +73,27 @@ Optional browser regression: with Node 24, Playwright and its Chromium available
 ### Comment checks
 
 Run `npm test` and `npm run build`. With Playwright and Chromium installed, run `node scripts/check-comments.mjs` for fixture-backed browser checks of safe rendering, pagination/retry, reload, stale responses, unmatched/empty states, independent episode loading, and mobile width. Set `PLAYWRIGHT_CHROMIUM_EXECUTABLE` when using a system Chromium. These checks do not verify the live Bangumi service or physical Samsung TV hardware.
+# Episode danmaku (Bahamut / Bilibili)
+
+The player supports public Bahamut Anime Crazy danmaku and Bilibili danmaku without a dandanplay App ID. These are independent adapters; the pending dandanplay application is not used yet.
+
+Opening an episode automatically enables danmaku, restores its saved pairing, or searches Bahamut when it has no pairing. Numeric source-title suffixes such as `[1]` are ignored for series matching; season numbers, release year and the exact episode still have to agree. No source controls are needed for a unique match. Turning comments off affects the current playback only; opening another episode or reloading enables them again. Automatic search errors are shown with a retry button rather than silently hidden. Manually saved pairings and explicitly cleared mappings are preserved.
+
+In the player, open **選擇彈幕來源**. Search an anime name on Bahamut or paste a full `https://ani.gamer.com.tw/animeVideo.php?sn=…` link. For Bilibili, paste a `BV…` video (including `?p=2` for split videos), `/bangumi/play/ep…`, or `/bangumi/play/ss…` URL, then choose the matching episode. Short links are not followed. Automatic Bahamut matching only saves a match when the catalogue title or alias, release year and numeric episode all match uniquely. Specials, ambiguous matches, missing years and titles with no source need manual selection; coverage for every anime is not guaranteed.
+
+Mappings and offsets are stored per Anime1 episode in the existing SQLite Durable Object, isolated by the device sync profile. They survive reloads and refresh across devices on focus and a 30-second foreground poll. Concurrent edits use revisions; stale edits show the latest setting instead of overwriting it. Up to 500 mappings are kept per profile. Clearing a mapping prevents automatic rematching until it ages out. A failed save is reported and must be retried; there is no offline mapping outbox. No new database binding or account setup is needed with the existing Workers configuration.
+
+The canvas overlay follows `video.currentTime`, including pause, buffering, seeking, resume and playback speed. Scrolling, top and bottom comments are supported; scripted/special modes are ignored. Density limits reduce crowding and leave the native controls clear. Density is remembered locally; on/off resets to on for each episode. Offsets range from −300 to +300 seconds; positive values delay comments. Use the player's **全螢幕** button to fullscreen the video container with its overlay. Native video-only fullscreen, including iPhone native fullscreen, does not include webpage overlays; use inline playback there.
+
+Server routes:
+
+- `GET /api/danmaku/search?q=…`: Bahamut title search.
+- `GET /api/danmaku/resolve?url=…`: list source episodes/CIDs from a supported URL.
+- `GET /api/danmaku/comments?provider=bahamut|bilibili&id=…&segment=1`: normalized comments; Bilibili requests the relevant six-minute protobuf segment, with adjacent segments near boundaries.
+- `GET/PUT /api/danmaku/settings?episode=…`: private profile settings, using the same Bearer sync code as watch history.
+
+Requests only target fixed source API hosts, reject redirects, time out after 12 seconds including the response body, and limit response bodies to 4 MB and output to 20,000 comments per request. Successful public responses are cached for ten minutes; errors are not cached. No source login credentials, dandanplay secrets, geolocation proxies or third-party shared API servers are used. Upstream restrictions, rate limits or response changes can prevent loading; retry or choose another source. Video playback is independent of these requests.
+
+Protocol references: [Bahamut adapter endpoints and response fields](https://github.com/huangxd-/danmu_api/blob/main/danmu_api/sources/bahamut.js), [Bilibili adapter endpoints](https://github.com/huangxd-/danmu_api/blob/main/danmu_api/sources/bilibili.js). This repository implements its own bounded adapters and wire decoder rather than bundling that server.
+
+Validation: `npm test` includes source parsing, response normalization, protobuf decoding, source failure handling, private per-episode persistence/conflicts and VM-based tests of the actual overlay controller (seek, pause, offset, toggling, automatic matching and stale-response isolation). Live production testing on 2026-09-12 identified Bahamut's required `geo=TW%2CHK` parameter; after correction, episode 29351 / Bahamut 49963 loaded 1,677 real comments, visibly rendered during playback and stopped during pause. One seek encountered a media-network error, recovered via reload. Physical Samsung TV/iPhone fullscreen and live Bilibili remain unverified; unit tests do not establish availability across sources/platforms.

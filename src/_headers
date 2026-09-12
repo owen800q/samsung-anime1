@@ -13,3 +13,8 @@
   Cache-Control: public, max-age=0, must-revalidate
 /state.js
   Cache-Control: public, max-age=0, must-revalidate
+
+/danmaku.js
+  Cache-Control: public, max-age=0, must-revalidate
+/danmaku.css
+  Cache-Control: public, max-age=0, must-revalidate
