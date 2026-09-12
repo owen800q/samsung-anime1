@@ -1,3 +1,4 @@
+import { validDanmakuSetting } from './danmaku-server.js';
 const historyHeaders={'Cache-Control':'no-store','Content-Type':'application/json','X-Content-Type-Options':'nosniff'};
 const historyResponse=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:historyHeaders});
 export function validProgress(data){
@@ -8,6 +9,7 @@ export function validProgress(data){
 export class WatchHistory {
   constructor(ctx){this.storage=ctx.storage;}
   async fetch(request){
+    if(new URL(request.url).pathname==='/danmaku-settings')return this.danmakuSettings(request);
     if(request.method==='GET'){
       const index=await this.storage.get('index')||[];
       const entries=[];
@@ -28,6 +30,23 @@ export class WatchHistory {
       return historyResponse({entry});
     });
   }
+  async danmakuSettings(request){
+    const id=new URL(request.url).searchParams.get('episode');
+    if(!/^\d{1,10}$/.test(id||''))return historyResponse({error:'集數編號無效。'},400);
+    const key='dm:'+id;
+    if(request.method==='GET')return historyResponse({entry:await this.storage.get(key)||{episodeId:id,source:null,offset:0,revision:0}});
+    let data;try{data=validDanmakuSetting(await request.json());}catch{}
+    if(request.method!=='PUT'||!data||data.episodeId!==id)return historyResponse({error:'彈幕設定無效。'},400);
+    return this.storage.transaction(async tx=>{
+      const old=await tx.get(key)||{episodeId:id,source:null,offset:0,revision:0};
+      if(old.revision!==data.revision)return historyResponse({conflict:true,entry:old},409);
+      const entry={...data,revision:old.revision+1,updatedAt:Date.now()};
+      const index=(await tx.get('dm-index')||[]).filter(x=>x!==id);index.unshift(id);
+      for(const removed of index.splice(500))await tx.delete('dm:'+removed);
+      await tx.put(key,entry);await tx.put('dm-index',index);return historyResponse({entry});
+    });
+  }
+
 }
 export async function historyRoute(request,env){
   const token=request.headers.get('authorization')?.match(/^Bearer ([a-f0-9]{32})$/)?.[1];
@@ -45,5 +64,7 @@ export async function historyRoute(request,env){
   const hash=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(token));
   const name=[...new Uint8Array(hash)].map(x=>x.toString(16).padStart(2,'0')).join('');
   const stub=env.WATCH_HISTORY.get(env.WATCH_HISTORY.idFromName(name));
-  return stub.fetch(new Request('https://history.internal/',{method:request.method,headers:{'Content-Type':'application/json'},body}));
+  const input=new URL(request.url);
+  const target=input.pathname==='/api/danmaku/settings'?'https://history.internal/danmaku-settings?episode='+encodeURIComponent(input.searchParams.get('episode')||''):'https://history.internal/';
+  return stub.fetch(new Request(target,{method:request.method,headers:{'Content-Type':'application/json'},body}));
 }

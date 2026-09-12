@@ -48,7 +48,7 @@
   function navigate(values,replace=false){const params=new URLSearchParams(values);const hash='#'+params;const same=location.hash===hash;if(!same)history[replace?'replaceState':'pushState'](null,'',hash);}
   const route=()=>new URLSearchParams(location.hash.slice(1));
   const time=value=>{const s=Math.max(0,Math.floor(value||0));return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');};
-  window.TVState={route,navigate,time,save,refresh,all:()=>Object.values(entries).sort((a,b)=>b.updatedAt-a.updatedAt),get:id=>entries[String(id)],latest:seriesId=>Object.values(entries).filter(x=>String(x.seriesId)===String(seriesId)).sort((a,b)=>b.updatedAt-a.updatedAt)[0]};
+  window.TVState={danmakuSettings:(id,data,signal)=>fetch('/api/danmaku/settings?episode='+encodeURIComponent(id),{method:data?'PUT':'GET',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:data?JSON.stringify(data):undefined,signal}),route,navigate,time,save,refresh,all:()=>Object.values(entries).sort((a,b)=>b.updatedAt-a.updatedAt),get:id=>entries[String(id)],latest:seriesId=>Object.values(entries).filter(x=>String(x.seriesId)===String(seriesId)).sort((a,b)=>b.updatedAt-a.updatedAt)[0]};
   $('sync-code').value=token.match(/.{1,4}/g).join('-');
   $('sync-toggle').addEventListener('click',()=>{$('sync-panel').hidden=!$('sync-panel').hidden;if(!$('sync-panel').hidden)$('sync-code').focus();});
   $('sync-copy').addEventListener('click',async()=>{try{await navigator.clipboard.writeText($('sync-code').value);syncStatus('同步碼已複製');}catch{$('sync-code').select();syncStatus('請複製上方同步碼');}});

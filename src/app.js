@@ -21,7 +21,7 @@
     video.currentTime=saved.completed?0:Math.min(saved.position,Math.max(0,video.duration-0.25));
     $('resume-status').hidden=false;$('resume-status').textContent=saved.completed?'本集已看完，從頭播放。':'已接續上次進度 '+S.time(video.currentTime);
   }
-  function stop(){saveProgress();watchArmed=false;pendingResume=null;generation++;request?.abort();video.pause();controls(false);}
+  function stop(){window.TVDanmaku?.stop();saveProgress();watchArmed=false;pendingResume=null;generation++;request?.abort();video.pause();controls(false);}
   function controls(loading) {
     busy = loading;
     ['play','fullscreen'].forEach(id => { $(id).disabled = busy || !playback; });
@@ -92,7 +92,7 @@
     }
   }
   async function prepare(url, refresh = false, opts = {}) {
-    saveProgress();watchArmed=false;pendingResume=null;requestedUrl=url;
+    window.TVDanmaku?.stop();saveProgress();watchArmed=false;pendingResume=null;requestedUrl=url;
     $('watch-player').after($('episode-picker'));
     $('episode-picker').hidden=false;
     if(opts.seriesId!==undefined){selectedSeries=opts.seriesId;selectedTitle=opts.seriesTitle||S.get(episodeId(url))?.seriesTitle||'';}
@@ -123,6 +123,7 @@
       pendingResume=S.get(episodeId(data.url))||null;
       playback = data; video.src = data.media; video.load(); $('empty').hidden = true;
       markEpisode();
+      window.TVDanmaku?.open({episodeId:episodeId(data.url),title:data.title,seriesTitle:selectedTitle||data.title.replace(/\s*\[[^\]]+\]\s*$/,''),seriesId:selectedSeries});
       $('title').textContent = data.title; $('source').href = data.url; $('source').hidden = false;
       $('episode-nav').hidden = !(data.previous || data.next); status('影片已準備好，請按播放');
       $('play').disabled = false; $('play').focus();

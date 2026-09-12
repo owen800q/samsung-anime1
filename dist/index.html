@@ -4,8 +4,8 @@
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="適合 Samsung 電視的獨立 Anime1 播放器，無需登入。">
   <meta name="robots" content="noindex,nofollow"><meta name="theme-color" content="#0b1019">
-  <title>Anime1 TV 動畫目錄</title><link rel="icon" href="/favicon.svg"><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/home.css">
-  <script src="/state.js" defer></script><script src="/app.js" defer></script><script src="/home.js" defer></script>
+  <title>Anime1 TV 動畫目錄</title><link rel="icon" href="/favicon.svg"><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/home.css"><link rel="stylesheet" href="/danmaku.css">
+  <script src="/state.js" defer></script><script src="/danmaku.js" defer></script><script src="/app.js" defer></script><script src="/home.js" defer></script>
 </head>
 <body><main class="shell">
   <header class="masthead"><a href="/" class="brand"><span class="brand-mark" aria-hidden="true">▶</span><span>Anime1 <strong>TV</strong></span></a><button id="home-back" class="tv-button outline" hidden>← 動畫目錄</button><button id="sync-toggle" class="tv-button outline">裝置同步</button></header>
@@ -38,11 +38,23 @@
       <section id="watch-player" hidden>
       <div class="screen" id="screen">
         <video id="video" controls playsinline preload="metadata" tabindex="0" aria-label="動畫播放器"></video>
+        <canvas id="danmaku-canvas" aria-hidden="true"></canvas>
         <div class="screen-empty" id="empty"><div class="screen-symbol" aria-hidden="true">▶</div><h1 id="empty-title">大螢幕，準備開播。</h1><p id="empty-description">從動畫目錄選擇想看的動畫。</p></div>
       </div>
       <div class="now-playing"><div><span class="eyebrow" id="status" role="status" aria-live="polite">準備播放</span><h2 id="title">選擇一集動畫</h2></div><a class="source-link" id="source" target="_blank" rel="noreferrer" hidden>原網頁 ↗</a></div>
       <p id="resume-status" class="resume-reminder" role="status" hidden></p><div class="controls"><button class="tv-button play-button" id="play" disabled>▶ 播放</button><button class="tv-button secondary" id="reload" disabled>↻ 重新載入</button><button class="tv-button secondary" id="fullscreen" disabled>全螢幕</button></div>
       <div class="error-box" id="error" role="alert" hidden></div>
+      <section class="danmaku-panel" aria-label="本集彈幕">
+        <div class="danmaku-toolbar"><button id="danmaku-toggle" class="tv-button secondary" aria-pressed="true">彈幕：開</button><button id="danmaku-config" class="tv-button outline" aria-expanded="false" aria-controls="danmaku-settings">選擇彈幕來源</button><label>密度<select id="danmaku-density"><option value="4">少量</option><option value="8" selected>適中</option><option value="12">較多</option></select></label></div>
+        <p id="danmaku-status" class="field-help" role="status">選好本集來源後，會自動沿用。</p><button id="danmaku-retry" class="tv-button outline" hidden>重試彈幕</button>
+        <div id="danmaku-settings" hidden>
+          <p id="danmaku-current" class="field-help"></p><a id="danmaku-source-link" class="source-link" target="_blank" rel="noreferrer" hidden>查看彈幕原頁 ↗</a>
+          <form id="danmaku-search-form"><label for="danmaku-query">動畫名稱／來源網址</label><div class="danmaku-search"><input id="danmaku-query" class="tv-input" maxlength="500" required placeholder="搜尋動畫瘋，或貼動畫瘋／Bilibili 網址"><button id="danmaku-search" class="tv-button" type="submit">搜尋來源</button></div></form>
+          <p id="danmaku-search-status" class="field-help" role="status"></p><div id="danmaku-results" class="danmaku-results"></div>
+          <form id="danmaku-offset-form" class="danmaku-toolbar"><label for="danmaku-offset">時間調整（秒）</label><input id="danmaku-offset" class="tv-input" type="number" min="-300" max="300" step="0.5" value="0" required><button class="tv-button outline" type="submit">儲存調整</button><button id="danmaku-clear" class="tv-button outline" type="button">清除本集配對</button></form>
+          <p class="field-help">正數令彈幕延後，負數令彈幕提早。配對及時間調整會透過裝置同步碼共用。iPhone 原生全螢幕不支援網頁彈幕，請用頁內播放。</p>
+        </div>
+      </section>
       <nav class="episode-nav" aria-label="集數切換" id="episode-nav" hidden><button class="tv-button outline" id="previous" disabled>上一集</button><button class="tv-button outline" id="next" disabled>下一集</button></nav>
       <p class="remote-hint">方向鍵選擇按鈕；選取影片後，左右鍵跳轉 10 秒。</p>
       </section>
