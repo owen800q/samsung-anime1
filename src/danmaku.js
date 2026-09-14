@@ -18,7 +18,7 @@
   // Bahamut's series/search title can include the currently selected episode.
   // Strip only numeric episode suffixes, not season numbers or special labels.
   const seriesName=s=>normal(String(s).normalize('NFKC').replace(/\s*\[\d+(?:\.\d+)?\]\s*$/,''));
-  async function json(path,signal){const r=await fetch(path,{signal:AbortSignal.any([signal,AbortSignal.timeout(15000)])});const d=await r.json();if(!r.ok)throw new Error(d.error||'彈幕暫時無法讀取。');return d;}
+  async function json(path,signal,timeout=15000){const r=await fetch(path,{signal:AbortSignal.any([signal,AbortSignal.timeout(timeout)])});const d=await r.json();if(!r.ok)throw new Error(d.error||'彈幕暫時無法讀取。');return d;}
   function settingsUI(){
     const list=sources(),src=list[0];
     $('danmaku-current').textContent=list.length?list.map(x=>providerName(x.provider)+' · '+x.title).join(' ／ '):'本集未配對彈幕';
@@ -138,7 +138,8 @@
     const current=()=>e===epoch&&g===searchEpoch&&revision===setting?.revision&&!saving&&!signal.aborted;
     matching=true;loadedStatus();
     try{
-      const {item}=await json('/api/catalog-item?id='+encodeURIComponent(info.seriesId)+'&match=1',signal);
+      // LLM-backed routes can take tens of seconds; aborting early cancels the Worker before it caches.
+      const {item}=await json('/api/catalog-item?id='+encodeURIComponent(info.seriesId)+'&match=1',signal,60000);
       if(!current())return;
       const names=[item.title,...(item.aliases||[])].map(seriesName);
       const pair=async provider=>{
@@ -148,7 +149,7 @@
           try{const match=await json('/api/danmaku/match?bgmId='+item.bgmId+'&episode='+encodeURIComponent(n),signal);if(match.sources.length===1)return match.sources[0];}
           catch(error){if(signal.aborted)throw error;mappingError=error;}
         }
-        const noMatch=async()=>{const fallback=await json('/api/danmaku/fallback?id='+encodeURIComponent(info.seriesId)+'&provider='+provider+'&episode='+encodeURIComponent(n),signal);if(fallback.sources.length===1)return fallback.sources[0];if(mappingError)throw mappingError;return null;};
+        const noMatch=async()=>{const fallback=await json('/api/danmaku/fallback?id='+encodeURIComponent(info.seriesId)+'&provider='+provider+'&episode='+encodeURIComponent(n),signal,60000);if(fallback.sources.length===1)return fallback.sources[0];if(mappingError)throw mappingError;return null;};
         const found=await json('/api/danmaku/search?q='+encodeURIComponent(item.title)+'&provider='+provider,signal);
         const exact=found.results.filter(x=>names.includes(seriesName(x.title)));
         if(exact.length!==1)return noMatch();

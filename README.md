@@ -112,7 +112,8 @@ Dandanplay integration validation: automated tests cover signatures, related-poo
 Set the Cloudflare **secret** `TITLE_MATCH_LLM_API_KEY` to your gateway API key.
 Never put it in `wrangler.jsonc`, frontend JavaScript, or a committed environment
 file. The Worker calls `https://llm-web-api-ttfg.onrender.com/v1/chat/completions`
-with `Authorization: Bearer <secret>`, `model: gemini-fast` and streaming responses.
+with `Authorization: Bearer <secret>`, `model: gemini-fast` and buffered (non-streaming)
+responses, so provider failures arrive as HTTP errors rather than as error text.
 The old `TITLE_MATCH_LLM_COOKIE` setting is no longer used. Without the new secret,
 the existing matching behavior remains available.
 
@@ -135,13 +136,19 @@ Series identity is cached for seven days in the Worker edge cache and bounded
 memory, including reuse across episodes. No-match results cache for one hour;
 request failures for one minute. Identical concurrent resolutions are coalesced
 within an isolate, with at most four active resolution jobs. Edge caches are
-regional, not a globally coordinated rate limit. LLM requests time out after four
-seconds (upstream searches have their own timeouts). Matching runs separately
+regional, not a globally coordinated rate limit. LLM requests time out after 25
+seconds: a measured `gemini-fast` turn takes 4.5–7 seconds through the gateway (a
+fresh Gemini session per request, answer delivered whole), longer after a Render
+cold start. Upstream searches have their own timeouts, and a failing search query
+(often the long full title) does not stop the shorter query. The browser waits up
+to 60 seconds for the two LLM-backed routes so the Worker is not cancelled before
+it caches. Matching runs separately
 from playback and cannot delay the media request. Model-provided URLs or IDs are
 never fetched; only the selected upstream candidate is used.
 
 Validation: `npm test` includes fixture-based coverage for anime 1921's naming,
-SSE parsing, candidate bounds/year checks, no-secret/exact-match fast paths,
+response parsing (fenced/prose-wrapped JSON, gateway error text), per-query search
+failure tolerance, candidate bounds/year checks, no-secret/exact-match fast paths,
 request coalescing, failure caching and episode ambiguity. These tests do not
 establish that the live model or provider will select a particular title.
 

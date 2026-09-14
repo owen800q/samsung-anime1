@@ -147,12 +147,16 @@ async function resolveCatalogueTitle(item, env = {}) {
   const known=resolvedCatalogueTitles.get(key);
   if(known && known.expires>Date.now())return {...item,...known.value};
   const value=await titleMatchCached('bangumi:'+key,async()=>{
-    const candidates=new Map();
+    const candidates=new Map();let failure;
+    // A failing query (often the long full title) must not hide the shorter one that finds the show.
     for(const query of titleQueries(item.title)){
-      const result=await catalogueJSON('https://api.bgm.tv/v0/search/subjects?limit=20',{method:'POST',signal:AbortSignal.timeout(4000),headers:{'Content-Type':'application/json'},body:JSON.stringify({keyword:query,filter:{type:[2],nsfw:false}})},3600);
+      let result;
+      try{result=await catalogueJSON('https://api.bgm.tv/v0/search/subjects?limit=20',{method:'POST',signal:AbortSignal.timeout(10000),headers:{'Content-Type':'application/json'},body:JSON.stringify({keyword:query,filter:{type:[2],nsfw:false}})},3600);}
+      catch(error){failure=error;titleMatchLog('search',{...diagnostic,reason:'candidate_error'});continue;}
       for(const x of result.data||[])if(x.type===2&&Number.isSafeInteger(x.id))candidates.set(x.id,{id:x.id,title:x.name_cn||x.name,aliases:[x.name,x.name_cn].filter(Boolean),year:String(x.date||'').slice(0,4)});
       if([...candidates.values()].some(x=>x.year===String(item.year)&&[x.title,...x.aliases].some(n=>normalTitle(n)===normalTitle(item.title))))break;
     }
+    if(!candidates.size&&failure)throw failure;
     const selected=await chooseTitle(item,[...candidates.values()],env,diagnostic);
     return selected?{bgmId:selected.id,aliases:[...new Set([...(item.aliases||[]),selected.title,...selected.aliases])]}:null;
   },Boolean(env.TITLE_MATCH_LLM_API_KEY),diagnostic);

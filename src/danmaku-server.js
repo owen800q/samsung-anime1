@@ -205,11 +205,13 @@ export async function fallbackDanmaku(item,provider,episode,env={}){
   const diagnostic={scope:'danmaku',seriesId:item.id,provider};
   if(!env.TITLE_MATCH_LLM_API_KEY){titleMatchLog('configuration',{...diagnostic,reason:'missing_secret'});return {sources:[]};}
   const identity=await titleMatchCached('danmaku:'+JSON.stringify([provider,item.id,item.title,item.year]),async()=>{
-    const found=new Map();
+    const found=new Map();let failure;
+    // A failing query (often the long full title) must not hide the shorter one that finds the show.
     for(const query of titleQueries(item.title)){
-      const data=await searchDanmaku(query,provider,env);
-      for(const x of data.results)found.set(x.url,x);
+      try{const data=await searchDanmaku(query,provider,env);for(const x of data.results)found.set(x.url,x);}
+      catch(error){failure=error;titleMatchLog('search',{...diagnostic,reason:'candidate_error'});}
     }
+    if(!found.size&&failure)throw failure;
     // Bahamut search omits dates. Resolve only a bounded shortlist for year validation.
     const shortlist=[...found.values()].slice(0,6),candidates=[];let cursor=0;
     await Promise.all(Array.from({length:Math.min(3,shortlist.length)},async()=>{while(cursor<shortlist.length){const x=shortlist[cursor++];
