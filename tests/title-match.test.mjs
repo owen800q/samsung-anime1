@@ -15,13 +15,24 @@ test('exact identity has no LLM request; disabled fallback never calls LLM',asyn
 });
 test('SSE response selects a real same-year candidate, API key stays on fixed backend',async t=>{
   t.mock.method(globalThis,'fetch',async (url,init)=>{
-    assert.equal(url,'https://llm-web-api-ttfg.onrender.com/v1/chat/completions');assert.equal(init.redirect,'error');
+    assert.equal(url,'https://llm-web-api-ttfg.onrender.com/v1/chat/completions');assert.equal(init.redirect,'manual');
     assert.equal(init.headers.Authorization,'Bearer test-token');
     const body=JSON.parse(init.body);assert.equal(body.stream,true);assert.equal(body.endpoint,undefined);assert.equal(body.webSearch,undefined);assert.equal(init.headers.Cookie,undefined);
     const input=JSON.parse(body.messages[1].content);assert.equal(input.candidates.length,1);assert.equal(input.candidates[0].year,'2026');
     return new Response('data: '+JSON.stringify({choices:[{delta:{content:'{"index":0,'}}]})+'\n\ndata: '+JSON.stringify({choices:[{delta:{content:'"confidence":0.99}'}}]})+'\n\ndata: [DONE]\n\n');
   });
   assert.equal(await chooseTitle(item,candidates,env),candidates[1]);
+});
+test('gateway redirects fail closed without forwarding credentials or accepting a match',async t=>{
+  let requests=0;
+  t.mock.method(globalThis,'fetch',async (url,init)=>{
+    requests++;
+    assert.equal(url,'https://llm-web-api-ttfg.onrender.com/v1/chat/completions');
+    assert.equal(init.redirect,'manual');
+    return new Response('{"index":0,"confidence":1}',{status:302,headers:{Location:'https://example.com/redirect'}});
+  });
+  await assert.rejects(chooseTitle(item,candidates,env),error=>error.matchReason==='http_error'&&error.status===302);
+  assert.equal(requests,1);
 });
 test('invented candidate IDs, low confidence and unknown dates are rejected',async t=>{
   for(const result of [{index:9,confidence:1},{index:0,confidence:0.8},{index:'0',confidence:1}]){
