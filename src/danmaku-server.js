@@ -1,4 +1,4 @@
-import { chooseTitle, titleQueries, titleMatchCached } from './title-match.js';
+import { chooseTitle, titleQueries, titleMatchCached, titleMatchLog } from './title-match.js';
 import { PlaybackError } from './adapter.js';
 
 const DM_UA='SamsungAnime1/1.2 (https://github.com/owen800q/Samsung-anime1)';
@@ -202,7 +202,8 @@ async function dandanComments(id,env){
 // Cache series identity, never episode-number guesses. Manual settings remain authoritative.
 export async function fallbackDanmaku(item,provider,episode,env={}){
   if(!['bahamut','dandanplay'].includes(provider)||!/^\d+(?:\.\d+)?$/.test(episode||''))throw new PlaybackError('配對資料無效。',400);
-  if(!env.TITLE_MATCH_LLM_API_KEY)return {sources:[]};
+  const diagnostic={scope:'danmaku',seriesId:item.id,provider};
+  if(!env.TITLE_MATCH_LLM_API_KEY){titleMatchLog('configuration',{...diagnostic,reason:'missing_secret'});return {sources:[]};}
   const identity=await titleMatchCached('danmaku:'+JSON.stringify([provider,item.id,item.title,item.year]),async()=>{
     const found=new Map();
     for(const query of titleQueries(item.title)){
@@ -213,13 +214,14 @@ export async function fallbackDanmaku(item,provider,episode,env={}){
     const shortlist=[...found.values()].slice(0,6),candidates=[];let cursor=0;
     await Promise.all(Array.from({length:Math.min(3,shortlist.length)},async()=>{while(cursor<shortlist.length){const x=shortlist[cursor++];
       if(x.year){candidates.push(x);continue;}
-      try{const d=await resolveDanmaku(x.url,env);candidates.push({...x,year:d.year,aliases:d.aliases||[]});}catch{}
+      try{const d=await resolveDanmaku(x.url,env);candidates.push({...x,year:d.year,aliases:d.aliases||[]});}catch{titleMatchLog('search',{...diagnostic,reason:'candidate_error'});}
     }}));
-    const selected=await chooseTitle(item,candidates,env);
+    const selected=await chooseTitle(item,candidates,env,diagnostic);
     return selected?{url:selected.url}:null;
-  });
+  },true,diagnostic);
   if(!identity)return {sources:[]};
   const detail=await resolveDanmaku(identity.url,env);
   const episodes=detail.episodes.filter(x=>/^\d+(?:\.\d+)?$/.test(x.label)&&Number(x.label)===Number(episode));
+  titleMatchLog('episode',{...diagnostic,episodeMatches:episodes.length,result:episodes.length===1?'matched':'unmatched',reason:episodes.length===1?'selected':episodes.length?'episode_ambiguous':'episode_missing'});
   return {sources:episodes.length===1?episodes:[]};
 }

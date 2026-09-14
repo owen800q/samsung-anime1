@@ -70,3 +70,35 @@ test('published client assets never contain gateway configuration; server bundle
   const excluded=await readFile(new URL('.assetsignore',root),'utf8');
   assert.ok(excluded.split(/\r?\n/).includes('_worker.js'));
 });
+
+test('diagnostics distinguish missing credentials and cached misses without exposing data',async t=>{
+  const logs=[];t.mock.method(console,'info',entry=>logs.push(entry));
+  assert.deepEqual(await fallbackDanmaku(item,'dandanplay','01',{}),{sources:[]});
+  assert.ok(logs.some(x=>x.reason==='missing_secret'&&x.seriesId===1921));
+  let calls=0;const load=async()=>{calls++;return null;};
+  const context={scope:'danmaku',seriesId:1921,provider:'dandanplay'};
+  await titleMatchCached('diagnostic-miss',load,true,context);
+  await titleMatchCached('diagnostic-miss',load,true,context);
+  assert.equal(calls,1);
+  assert.ok(logs.some(x=>x.stage==='cache'&&x.cache==='memory'&&x.result==='unmatched'&&x.reason==='no_match'&&x.retryAfterSeconds>0));
+  assert.doesNotMatch(JSON.stringify(logs),/無職|diagnostic-miss|test-token/);
+});
+test('diagnostics report upstream HTTP status and timeout without raw errors or key',async t=>{
+  const logs=[];t.mock.method(console,'info',entry=>logs.push(entry));
+  t.mock.method(globalThis,'fetch',async()=>new Response('test-token private body',{status:401}));
+  await titleMatchCached('diagnostic-http',()=>chooseTitle(item,candidates,env));
+  assert.ok(logs.some(x=>x.stage==='llm_error'&&x.reason==='http_error'&&x.status===401));
+  t.mock.method(globalThis,'fetch',async()=>{throw new DOMException('test-token private error','TimeoutError');});
+  await titleMatchCached('diagnostic-timeout',()=>chooseTitle(item,candidates,env));
+  assert.ok(logs.some(x=>x.stage==='llm_error'&&x.reason==='timeout'));
+  assert.doesNotMatch(JSON.stringify(logs),/test-token|private|Authorization|Bearer|https:/);
+});
+test('invalid JSON and wrong-year candidates have distinct sanitized diagnostics',async t=>{
+  const logs=[];t.mock.method(console,'info',entry=>logs.push(entry));
+  t.mock.method(globalThis,'fetch',async()=>new Response('test-token invalid json'));
+  await titleMatchCached('diagnostic-json',()=>chooseTitle(item,candidates,env));
+  assert.ok(logs.some(x=>x.stage==='llm_error'&&x.reason==='invalid_response'));
+  await chooseTitle(item,[{title:'another title',year:'2023'}],env);
+  assert.ok(logs.some(x=>x.reason==='year_mismatch'&&x.validCandidates===0&&x.candidates===1));
+  assert.doesNotMatch(JSON.stringify(logs),/test-token|invalid json|another title/);
+});

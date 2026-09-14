@@ -144,3 +144,15 @@ Validation: `npm test` includes fixture-based coverage for anime 1921's naming,
 SSE parsing, candidate bounds/year checks, no-secret/exact-match fast paths,
 request coalescing, failure caching and episode ambiguity. These tests do not
 establish that the live model or provider will select a particular title.
+
+Matching diagnostics are server-side structured logs with `event: title_match`.
+Filter Worker Live Logs for this event to see `seriesId`, scope/provider, cache
+hits and remaining cache lifetime, candidate counts, and LLM status/timing.
+`missing_secret` means the binding is absent; `year_mismatch` means no candidate
+has the source release year; `http_error` includes the upstream HTTP status;
+`timeout`, `invalid_response` and `rejected` distinguish other failures.
+A successful HTTP 200 from a matching route does **not** establish a match.
+Cache hits retain the prior failure category. The v3 cache namespace causes old
+silent failures to be re-evaluated once. No titles, prompts, credentials, raw
+exceptions or upstream response bodies are written to these logs or returned
+to the browser.
