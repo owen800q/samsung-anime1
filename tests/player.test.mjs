@@ -57,9 +57,9 @@ test('vendored DPlayer styles match explicit CSP hashes without allowing arbitra
   const styles=[];const head={appendChild:x=>styles.push(x)};
   const document={baseURI:'https://example.com/',querySelector:()=>head,createTextNode:textContent=>({textContent}),
     createElement:()=>({href:'https://example.com/',protocol:'https:',host:'example.com',pathname:'/',search:'',hash:'',hostname:'example.com',port:'',setAttribute(){},appendChild(x){this.text=(this.text||'')+x.textContent;},style:{}})};
-  const context={self:{},window:{navigator:{userAgent:'Node'},location:{href:'https://example.com/'}},document,navigator:{userAgent:'Node'},URL,console,setTimeout:()=>0,clearTimeout(){}};
+  const context={self:{},window:{navigator:{userAgent:'Node'},location:{href:'https://example.com/'}},document,navigator:{userAgent:'Node'},btoa:s=>Buffer.from(s,'binary').toString('base64'),URL,console,setTimeout:()=>0,clearTimeout(){}};
   vm.runInNewContext(readFileSync(new URL('../src/vendor/dplayer-1.27.1.min.js',import.meta.url),'utf8'),context);
   const headers=readFileSync(new URL('../src/_headers',import.meta.url),'utf8');assert.equal(styles.length,2);
-  for(const style of styles)assert.ok(headers.includes('sha256-'+createHash('sha256').update(style.text).digest('base64')));
+  for(const style of styles){const hash=createHash('sha256').update(style.text).digest('base64');assert.ok(headers.includes('sha256-'+hash));}
   assert.ok(!headers.includes("'unsafe-inline'"));assert.equal(typeof context.self.DPlayer,'function');
 });
