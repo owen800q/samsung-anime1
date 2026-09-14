@@ -7,4 +7,15 @@
 @media(max-width:560px){.shell{padding:20px 18px}.masthead{margin-bottom:22px;padding-bottom:20px}.brand{font-size:23px}.edition{font-size:13px}.workspace{gap:22px}.tv-button{padding:12px 15px;font-size:16px}.screen-empty p{font-size:14px}.screen-symbol{width:48px;height:48px}.screen-symbol svg{width:22px;height:22px}.screen-empty h1{margin-top:10px}.now-playing{flex-direction:column;gap:0}.source-link{margin-top:0}}
 
 .episode-button:focus{outline:3px solid var(--primary);outline-offset:4px}.episode-button{scroll-margin-block:24px}
+/* Leave room for playback controls and the first episode row on desktop/TV. */
+@media(min-width:1051px){
+  #screen:not(:fullscreen){width:calc((100vh - 420px) * 16 / 9);min-width:360px;max-width:100%;margin:0 auto}
+  #watch-player .now-playing{margin:12px 0 8px}
+  #watch-player .now-playing h2{margin:0}
+  #watch-player .resume-reminder{margin:6px 0}
+  #watch-player>.episode-picker{margin-top:14px;padding:12px 18px}
+  #watch-player>.episode-picker h3{margin:0;font-size:18px}
+  #watch-player>.episode-picker .field-help{margin-top:4px}
+  #watch-player>.episode-picker .episode-grid{margin-top:8px}
+}
 @media(max-width:560px){.episode-picker{padding:18px}.episode-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}}

@@ -65,7 +65,7 @@
     $('home-browser').hidden=true;$('watch-player').hidden=true;$('home-detail').hidden=false;$('home-back').hidden=false;
     $('detail-title').textContent=item.title;$('detail-facts').textContent=[item.year,item.season?item.season+'季':'',formats[item.format]||'動畫',item.episodes].filter(Boolean).join(' · ');
     $('detail-episodes').disabled=true;$('detail-cover').hidden=!item.bgmId;$('detail-cover').removeAttribute('src');if(item.bgmId)$('detail-cover').src='/api/cover?id='+item.id;
-    applyDetail(item,details.get(item.id));$('home-back').focus();
+    applyDetail(item,details.get(item.id));$('home-back').focus();window.scrollTo(0,0);
     document.dispatchEvent(new CustomEvent('anime1:open-series',{detail:{id:item.id,title:item.title}}));
     reminder();void S.refresh();
     if(item.bgmId&&!details.has(item.id))void json('/api/metadata?ids='+item.id).then(data=>updateCard(item,data.details[item.id])).catch(()=>{});
@@ -148,6 +148,7 @@
     }
     if(view==='anime'&&/^\d{1,10}$/.test(p.get('id')||'')){
       $('home-browser').hidden=true;$('home-detail').hidden=false;$('home-back').hidden=false;$('detail-title').textContent='正在讀取動畫…';$('detail-history').textContent='';
+      window.scrollTo(0,0);
       try{const data=await json('/api/catalog-item?id='+p.get('id'));if(id!==routeGeneration||S.route().get('view')!=='anime'||S.route().get('id')!==p.get('id'))return;openAnime(data.item,false);}
       catch(e){if(id===routeGeneration)$('detail-title').textContent=e.message;}
       return;

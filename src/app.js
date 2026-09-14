@@ -2,6 +2,14 @@
   'use strict';
   const $ = id => document.getElementById(id);
   const S=window.TVState;
+  const desktopPlayer=window.matchMedia('(min-width:1051px)');
+  function placeWatchEpisodes(){
+    if(desktopPlayer.matches)$('watch-player').querySelector('.danmaku-panel').before($('episode-picker'));
+    else $('watch-player').after($('episode-picker'));
+  }
+  const resizePlayer=()=>{if(!$('watch-player').hidden)placeWatchEpisodes();};
+  if(desktopPlayer.addEventListener)desktopPlayer.addEventListener('change',resizePlayer);
+  else desktopPlayer.addListener(resizePlayer);
   let selectedSeries=null,selectedTitle='',watchArmed=false,pendingResume=null,lastSavedAt=0,lastRecorded='';
   const video = $('video'); let playback = null; let request = null; let generation = 0; let requestedUrl = '';
   let busy = false; let catalog = null; let listRequest = null; let listGeneration = 0; let listInput = ''; let retryPage = 1;
@@ -93,7 +101,7 @@
   }
   async function prepare(url, refresh = false, opts = {}) {
     window.TVDanmaku?.stop();saveProgress();watchArmed=false;pendingResume=null;requestedUrl=url;
-    $('watch-player').after($('episode-picker'));
+    placeWatchEpisodes();
     $('episode-picker').hidden=false;
     if(opts.seriesId!==undefined){selectedSeries=opts.seriesId;selectedTitle=opts.seriesTitle||S.get(episodeId(url))?.seriesTitle||'';}
     else if(!catalog?.episodes.some(item=>item.url===url)){selectedSeries=null;selectedTitle='';}
@@ -112,6 +120,7 @@
     const slow=setTimeout(()=>{if(id===generation)status('原站回應較慢，仍在取得播放資料…');},12000);
     const timeout=setTimeout(()=>request?.signal===signal&&request.abort('timeout'),65000);
     markEpisode(); void loadEpisodes(url);
+    if(desktopPlayer.matches)$('screen').scrollIntoView({block:'start'});
     try {
       const response = await fetch('/api/resolve', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url, refresh }), signal });
       if (!response.headers.get('content-type')?.includes('application/json')) throw new Error('播放服務未能回應，請稍後重試。');
