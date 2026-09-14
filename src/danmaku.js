@@ -138,7 +138,7 @@
     const current=()=>e===epoch&&g===searchEpoch&&revision===setting?.revision&&!saving&&!signal.aborted;
     matching=true;loadedStatus();
     try{
-      const {item}=await json('/api/catalog-item?id='+encodeURIComponent(info.seriesId),signal);
+      const {item}=await json('/api/catalog-item?id='+encodeURIComponent(info.seriesId)+'&match=1',signal);
       if(!current())return;
       const names=[item.title,...(item.aliases||[])].map(seriesName);
       const pair=async provider=>{
@@ -148,7 +148,7 @@
           try{const match=await json('/api/danmaku/match?bgmId='+item.bgmId+'&episode='+encodeURIComponent(n),signal);if(match.sources.length===1)return match.sources[0];}
           catch(error){if(signal.aborted)throw error;mappingError=error;}
         }
-        const noMatch=()=>{if(mappingError)throw mappingError;return null;};
+        const noMatch=async()=>{const fallback=await json('/api/danmaku/fallback?id='+encodeURIComponent(info.seriesId)+'&provider='+provider+'&episode='+encodeURIComponent(n),signal);if(fallback.sources.length===1)return fallback.sources[0];if(mappingError)throw mappingError;return null;};
         const found=await json('/api/danmaku/search?q='+encodeURIComponent(item.title)+'&provider='+provider,signal);
         const exact=found.results.filter(x=>names.includes(seriesName(x.title)));
         if(exact.length!==1)return noMatch();
@@ -225,3 +225,4 @@
   setInterval(()=>{if(!document.hidden)void refreshSetting();},30000);
   toggleUI();window.TVDanmaku={open,stop};
 })();
+

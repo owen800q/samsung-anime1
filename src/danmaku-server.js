@@ -1,3 +1,4 @@
+import { chooseTitle, titleQueries, titleMatchCached } from './title-match.js';
 import { PlaybackError } from './adapter.js';
 
 const DM_UA='SamsungAnime1/1.2 (https://github.com/owen800q/Samsung-anime1)';
@@ -195,4 +196,30 @@ export function decodeDandanplay(data){
 async function dandanComments(id,env){
   if(!dandanConfigured(env))throw new PlaybackError('彈彈play 尚未完成後端配置。',503);
   return dmCached('dandan-comments:'+env.DANDANPLAY_APP_ID+':'+id,async()=>({provider:'dandanplay',id,segment:1,includesRelated:true,comments:decodeDandanplay(await dandanRequest('/api/v2/comment/'+id,'?withRelated=true&chConvert=0',env,true))}),3600);
+}
+
+
+// Cache series identity, never episode-number guesses. Manual settings remain authoritative.
+export async function fallbackDanmaku(item,provider,episode,env={}){
+  if(!['bahamut','dandanplay'].includes(provider)||!/^\d+(?:\.\d+)?$/.test(episode||''))throw new PlaybackError('配對資料無效。',400);
+  if(!env.TITLE_MATCH_LLM_COOKIE)return {sources:[]};
+  const identity=await titleMatchCached('danmaku:'+JSON.stringify([provider,item.id,item.title,item.year]),async()=>{
+    const found=new Map();
+    for(const query of titleQueries(item.title)){
+      const data=await searchDanmaku(query,provider,env);
+      for(const x of data.results)found.set(x.url,x);
+    }
+    // Bahamut search omits dates. Resolve only a bounded shortlist for year validation.
+    const shortlist=[...found.values()].slice(0,6),candidates=[];let cursor=0;
+    await Promise.all(Array.from({length:Math.min(3,shortlist.length)},async()=>{while(cursor<shortlist.length){const x=shortlist[cursor++];
+      if(x.year){candidates.push(x);continue;}
+      try{const d=await resolveDanmaku(x.url,env);candidates.push({...x,year:d.year,aliases:d.aliases||[]});}catch{}
+    }}));
+    const selected=await chooseTitle(item,candidates,env);
+    return selected?{url:selected.url}:null;
+  });
+  if(!identity)return {sources:[]};
+  const detail=await resolveDanmaku(identity.url,env);
+  const episodes=detail.episodes.filter(x=>/^\d+(?:\.\d+)?$/.test(x.label)&&Number(x.label)===Number(episode));
+  return {sources:episodes.length===1?episodes:[]};
 }

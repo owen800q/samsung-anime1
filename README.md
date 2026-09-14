@@ -105,3 +105,37 @@ Protocol references: [official Dandanplay authentication and usage](https://doc.
 Validation: `npm test` includes source parsing, response normalization, protobuf decoding, source failure handling, private per-episode persistence/conflicts and VM-based tests of the actual overlay controller (seek, pause, offset, toggling, automatic matching and stale-response isolation). Live production testing on 2026-09-12 identified Bahamut's required `geo=TW%2CHK` parameter; after correction, episode 29351 / Bahamut 49963 loaded 1,677 real comments, visibly rendered during playback and stopped during pause. One seek encountered a media-network error, recovered via reload. Physical Samsung TV/iPhone fullscreen and live Bilibili remain unverified; unit tests do not establish availability across sources/platforms.
 
 Dandanplay integration validation: automated tests cover signatures, related-pool requests, credential stripping on redirects, multi-source merging/deduplication/filtering, independent offsets, failure isolation and legacy-setting migration. These fixture tests do not establish live Dandanplay availability; that requires the deployed secret and a successful real playback check.
+
+
+### Optional LLM title matching
+
+Set the Cloudflare **secret** `TITLE_MATCH_LLM_COOKIE` to the value of your
+`llmchat_auth` cookie (the value only, without `llmchat_auth=`). Never put it in
+`wrangler.jsonc`, frontend JavaScript, or a committed environment file. The server
+uses `https://chat.codeboxhk.com/api/chat`, `endpoint: other`, `model: gemini-fast`,
+streaming responses and `webSearch: false`. Without this secret the existing
+matching behavior remains available.
+
+Missing Bangumi identities are resolved when opening an individual detail or
+watch page; catalogue browsing does not run LLM matching for every card. Searches
+try the full title and a shorter franchise query. Exact title/year matches bypass
+the model. Otherwise the model selects only from real upstream candidates with a
+matching release year, and must distinguish seasons and cours. Low-confidence,
+invalid or ambiguous answers remain unmatched and manual matching is available.
+The danmaku fallback runs only after existing ID/exact matching fails and keeps
+saved/manual pairings. Episode numbers still require one exact numeric match;
+there is no inferred episode offset.
+
+Series identity is cached for seven days in the Worker edge cache and bounded
+memory, including reuse across episodes. No-match results cache for one hour;
+request failures for one minute. Identical concurrent resolutions are coalesced
+within an isolate, with at most four active resolution jobs. Edge caches are
+regional, not a globally coordinated rate limit. LLM requests time out after four
+seconds (upstream searches have their own timeouts). Matching runs separately
+from playback and cannot delay the media request. Model-provided URLs or IDs are
+never fetched; only the selected upstream candidate is used.
+
+Validation: `npm test` includes fixture-based coverage for anime 1921's naming,
+SSE parsing, candidate bounds/year checks, no-secret/exact-match fast paths,
+request coalescing, failure caching and episode ambiguity. These tests do not
+establish that the live model or provider will select a particular title.

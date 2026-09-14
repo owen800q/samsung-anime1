@@ -68,6 +68,16 @@
     applyDetail(item,details.get(item.id));$('home-back').focus();window.scrollTo(0,0);
     document.dispatchEvent(new CustomEvent('anime1:open-series',{detail:{id:item.id,title:item.title}}));
     reminder();void S.refresh();
+    if(!item.bgmId)void json('/api/catalog-item?id='+item.id+'&match=1').then(async data=>{
+      if(selected!==item.id||!data.item.bgmId)return;
+      Object.assign(item,data.item);
+      $('comments-source').href='https://bgm.tv/subject/'+item.bgmId+'/comments';$('comments-source').hidden=false;void loadComments();
+      const result=await json('/api/metadata?ids='+item.id);
+      if(selected!==item.id)return;
+      updateCard(item,result.details[item.id]);
+      $('detail-cover').hidden=false;$('detail-cover').src='/api/cover?id='+item.id;
+    }).catch(()=>{});
+
     if(item.bgmId&&!details.has(item.id))void json('/api/metadata?ids='+item.id).then(data=>updateCard(item,data.details[item.id])).catch(()=>{});
   }
   function card(item){
@@ -160,3 +170,4 @@
   document.addEventListener('anime1:route',()=>void restoreRoute());
   document.dispatchEvent(new CustomEvent('anime1:route'));
 })();
+
