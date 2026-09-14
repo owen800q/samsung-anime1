@@ -1,3 +1,4 @@
+import { chooseTitle, titleQueries, titleMatchCached, titleMatchLog } from './title-match.js';
 import { CATALOG_SEED } from './catalog-data.js';
 import { PlaybackError, plainText, listSeriesEpisodes } from './adapter.js';
 
@@ -23,7 +24,7 @@ async function catalogueJSON(url, init = {}, ttl = 3600) {
     const cached = await cache?.match(cacheKey).catch(()=>null);
     if (cached) data = await cached.json();
     else {
-      const response = await fetch(url,{...init,redirect:'manual',headers:{'User-Agent':CATALOG_UA,...init.headers},signal:AbortSignal.timeout(20000)});
+      const response = await fetch(url,{...init,redirect:'manual',headers:{'User-Agent':CATALOG_UA,...init.headers},signal:init.signal||AbortSignal.timeout(20000)});
       if(!response.ok) throw new PlaybackError('動畫資料服務暫時無法使用（'+response.status+'）。',502);
       const reader=response.body.getReader();const chunks=[];let length=0;
       try { for(;;){const {value,done}=await reader.read();if(done)break;length+=value.length;if(length>3000000){await reader.cancel();throw new Error('Catalogue response too large');}chunks.push(value);} } finally {reader.releaseLock();}
@@ -58,6 +59,7 @@ function metadata(subject, sourceId) {
   return {id:sourceId,bgmId:subject.id,name:subject.name_cn||subject.name,summary:plainText(subject.summary||''),score:subject.rating?.total>0?subject.rating.score:null,ratingCount:subject.rating?.total||0,tags:(subject.tags||[]).slice(0,8).map(t=>plainText(t.name)),cover:safeImage?'/api/cover?id='+sourceId:null,image:safeImage,bangumiUrl:'https://bgm.tv/subject/'+subject.id};
 }
 async function subjectMetadata(item) {
+  item = await resolveCatalogueTitle(item);
   if(!item.bgmId)return null;
   return metadata(await catalogueJSON('https://api.bgm.tv/v0/subjects/'+item.bgmId,{},86400),item.id);
 }
@@ -90,17 +92,18 @@ export async function catalogueSeries(id, page) {
   if(!item)throw new PlaybackError('Anime1 目錄沒有這套動畫。',404);
   return listSeriesEpisodes(item.id,item.title,page);
 }
-export async function catalogueItem(id) {
+export async function catalogueItem(id, env = {}) {
   if(!/^\d{1,10}$/.test(id||''))throw new PlaybackError('動畫編號無效。',400);
   const {items}=await catalogueIndex();const item=items.find(x=>x.id===Number(id));
   if(!item)throw new PlaybackError('目錄找不到這套動畫。',404);
-  return {item:{...publicItem(item),aliases:item.aliases||[]}};
+  const resolved=await resolveCatalogueTitle(item,env);
+  return {item:{...publicItem(resolved),aliases:resolved.aliases||[]}};
 }
 // Bangumi's website API exposes public short comments (the v0 API does not).
 // Keep this separate from metadata/episodes so an upstream outage cannot block playback.
-export async function catalogueComments(id, page = 1) {
+export async function catalogueComments(id, page = 1, env = {}) {
   if(!Number.isInteger(page)||page<1||page>500)throw new PlaybackError('評論頁碼無效。',400);
-  const {item}=await catalogueItem(id);
+  const {item}=await catalogueItem(id,env);
   if(!item.bgmId)return {comments:[],total:0,page,nextPage:null,bangumiUrl:null,matched:false};
   const limit=20,offset=(page-1)*limit;
   const bangumiUrl='https://bgm.tv/subject/'+item.bgmId+'/comments';
@@ -132,4 +135,31 @@ export async function catalogueCover(id) {
   const bytes=new Uint8Array(length);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}
   const output=new Response(bytes,{headers:{'Content-Type':response.headers.get('content-type'),'Cache-Control':'public, max-age=86400','X-Content-Type-Options':'nosniff'}});
   await cache?.put(key,output.clone()).catch(()=>{});return output;
+}
+
+
+const resolvedCatalogueTitles = new Map();
+async function resolveCatalogueTitle(item, env = {}) {
+  if(item.bgmId)return item;
+  const diagnostic={scope:'bangumi',seriesId:item.id};
+  if(env.ASSETS&&!env.TITLE_MATCH_LLM_API_KEY)titleMatchLog('configuration',{...diagnostic,reason:'missing_secret'});
+  const key=JSON.stringify([item.id,item.title,item.year]);
+  const known=resolvedCatalogueTitles.get(key);
+  if(known && known.expires>Date.now())return {...item,...known.value};
+  const value=await titleMatchCached('bangumi:'+key,async()=>{
+    const candidates=new Map();let failure;
+    // A failing query (often the long full title) must not hide the shorter one that finds the show.
+    for(const query of titleQueries(item.title)){
+      let result;
+      try{result=await catalogueJSON('https://api.bgm.tv/v0/search/subjects?limit=20',{method:'POST',signal:AbortSignal.timeout(10000),headers:{'Content-Type':'application/json'},body:JSON.stringify({keyword:query,filter:{type:[2],nsfw:false}})},3600);}
+      catch(error){failure=error;titleMatchLog('search',{...diagnostic,reason:'candidate_error'});continue;}
+      for(const x of result.data||[])if(x.type===2&&Number.isSafeInteger(x.id))candidates.set(x.id,{id:x.id,title:x.name_cn||x.name,aliases:[x.name,x.name_cn].filter(Boolean),year:String(x.date||'').slice(0,4)});
+      if([...candidates.values()].some(x=>x.year===String(item.year)&&[x.title,...x.aliases].some(n=>normalTitle(n)===normalTitle(item.title))))break;
+    }
+    if(!candidates.size&&failure)throw failure;
+    const selected=await chooseTitle(item,[...candidates.values()],env,diagnostic);
+    return selected?{bgmId:selected.id,aliases:[...new Set([...(item.aliases||[]),selected.title,...selected.aliases])]}:null;
+  },Boolean(env.TITLE_MATCH_LLM_API_KEY),diagnostic);
+  if(value){while(resolvedCatalogueTitles.size>=300)resolvedCatalogueTitles.delete(resolvedCatalogueTitles.keys().next().value);resolvedCatalogueTitles.set(key,{value,expires:Date.now()+3600000});}
+  return value?{...item,...value}:item;
 }

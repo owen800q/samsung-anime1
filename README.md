@@ -105,3 +105,61 @@ Protocol references: [official Dandanplay authentication and usage](https://doc.
 Validation: `npm test` includes source parsing, response normalization, protobuf decoding, source failure handling, private per-episode persistence/conflicts and VM-based tests of the actual overlay controller (seek, pause, offset, toggling, automatic matching and stale-response isolation). Live production testing on 2026-09-12 identified Bahamut's required `geo=TW%2CHK` parameter; after correction, episode 29351 / Bahamut 49963 loaded 1,677 real comments, visibly rendered during playback and stopped during pause. One seek encountered a media-network error, recovered via reload. Physical Samsung TV/iPhone fullscreen and live Bilibili remain unverified; unit tests do not establish availability across sources/platforms.
 
 Dandanplay integration validation: automated tests cover signatures, related-pool requests, credential stripping on redirects, multi-source merging/deduplication/filtering, independent offsets, failure isolation and legacy-setting migration. These fixture tests do not establish live Dandanplay availability; that requires the deployed secret and a successful real playback check.
+
+
+### Optional LLM title matching
+
+Set the Cloudflare **secret** `TITLE_MATCH_LLM_API_KEY` to your gateway API key.
+Never put it in `wrangler.jsonc`, frontend JavaScript, or a committed environment
+file. The Worker calls `https://llm-web-api-ttfg.onrender.com/v1/chat/completions`
+with `Authorization: Bearer <secret>`, `model: gemini-fast` and buffered (non-streaming)
+responses, so provider failures arrive as HTTP errors rather than as error text.
+The old `TITLE_MATCH_LLM_COOKIE` setting is no longer used. Without the new secret,
+the existing matching behavior remains available.
+
+The browser calls only same-origin catalogue/danmaku APIs and receives sanitized
+matching results. Neither the gateway URL, authorization header nor API key is
+included in browser assets or API responses. The generated `_worker.js` is a
+server entry point excluded from static assets by `.assetsignore`.
+
+Missing Bangumi identities are resolved when opening an individual detail or
+watch page; catalogue browsing does not run LLM matching for every card. Searches
+try the full title and a shorter franchise query. Exact title/year matches bypass
+the model. Otherwise the model selects only from real upstream candidates with a
+matching release year, and must distinguish seasons and cours. Low-confidence,
+invalid or ambiguous answers remain unmatched and manual matching is available.
+The danmaku fallback runs only after existing ID/exact matching fails and keeps
+saved/manual pairings. Episode numbers still require one exact numeric match;
+there is no inferred episode offset.
+
+Series identity is cached for seven days in the Worker edge cache and bounded
+memory, including reuse across episodes. No-match results cache for one hour;
+request failures for one minute. Identical concurrent resolutions are coalesced
+within an isolate, with at most four active resolution jobs. Edge caches are
+regional, not a globally coordinated rate limit. LLM requests time out after 25
+seconds: a measured `gemini-fast` turn takes 4.5–7 seconds through the gateway (a
+fresh Gemini session per request, answer delivered whole), longer after a Render
+cold start. Upstream searches have their own timeouts, and a failing search query
+(often the long full title) does not stop the shorter query. The browser waits up
+to 60 seconds for the two LLM-backed routes so the Worker is not cancelled before
+it caches. Matching runs separately
+from playback and cannot delay the media request. Model-provided URLs or IDs are
+never fetched; only the selected upstream candidate is used.
+
+Validation: `npm test` includes fixture-based coverage for anime 1921's naming,
+response parsing (fenced/prose-wrapped JSON, gateway error text), per-query search
+failure tolerance, candidate bounds/year checks, no-secret/exact-match fast paths,
+request coalescing, failure caching and episode ambiguity. These tests do not
+establish that the live model or provider will select a particular title.
+
+Matching diagnostics are server-side structured logs with `event: title_match`.
+Filter Worker Live Logs for this event to see `seriesId`, scope/provider, cache
+hits and remaining cache lifetime, candidate counts, and LLM status/timing.
+`missing_secret` means the binding is absent; `year_mismatch` means no candidate
+has the source release year; `http_error` includes the upstream HTTP status;
+`timeout`, `invalid_response` and `rejected` distinguish other failures.
+A successful HTTP 200 from a matching route does **not** establish a match.
+Cache hits retain the prior failure category. The v3 cache namespace causes old
+silent failures to be re-evaluated once. No titles, prompts, credentials, raw
+exceptions or upstream response bodies are written to these logs or returned
+to the browser.
