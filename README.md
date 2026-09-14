@@ -109,12 +109,17 @@ Dandanplay integration validation: automated tests cover signatures, related-poo
 
 ### Optional LLM title matching
 
-Set the Cloudflare **secret** `TITLE_MATCH_LLM_COOKIE` to the value of your
-`llmchat_auth` cookie (the value only, without `llmchat_auth=`). Never put it in
-`wrangler.jsonc`, frontend JavaScript, or a committed environment file. The server
-uses `https://chat.codeboxhk.com/api/chat`, `endpoint: other`, `model: gemini-fast`,
-streaming responses and `webSearch: false`. Without this secret the existing
-matching behavior remains available.
+Set the Cloudflare **secret** `TITLE_MATCH_LLM_API_KEY` to your gateway API key.
+Never put it in `wrangler.jsonc`, frontend JavaScript, or a committed environment
+file. The Worker calls `https://llm-web-api-ttfg.onrender.com/v1/chat/completions`
+with `Authorization: Bearer <secret>`, `model: gemini-fast` and streaming responses.
+The old `TITLE_MATCH_LLM_COOKIE` setting is no longer used. Without the new secret,
+the existing matching behavior remains available.
+
+The browser calls only same-origin catalogue/danmaku APIs and receives sanitized
+matching results. Neither the gateway URL, authorization header nor API key is
+included in browser assets or API responses. The generated `_worker.js` is a
+server entry point excluded from static assets by `.assetsignore`.
 
 Missing Bangumi identities are resolved when opening an individual detail or
 watch page; catalogue browsing does not run LLM matching for every card. Searches

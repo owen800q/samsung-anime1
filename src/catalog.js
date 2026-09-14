@@ -153,7 +153,7 @@ async function resolveCatalogueTitle(item, env = {}) {
     }
     const selected=await chooseTitle(item,[...candidates.values()],env);
     return selected?{bgmId:selected.id,aliases:[...new Set([...(item.aliases||[]),selected.title,...selected.aliases])]}:null;
-  },Boolean(env.TITLE_MATCH_LLM_COOKIE));
+  },Boolean(env.TITLE_MATCH_LLM_API_KEY));
   if(value){while(resolvedCatalogueTitles.size>=300)resolvedCatalogueTitles.delete(resolvedCatalogueTitles.keys().next().value);resolvedCatalogueTitles.set(key,{value,expires:Date.now()+3600000});}
   return value?{...item,...value}:item;
 }

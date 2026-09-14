@@ -4,7 +4,7 @@ import { chooseTitle, titleQueries, titleMatchCached } from '../src/title-match.
 import { fallbackDanmaku } from '../src/danmaku-server.js';
 const item={id:1921,title:'無職轉生III～到了異世界就拿出真本事～ (第三季)',year:'2026',season:'夏'};
 const candidates=[{id:1,title:'無職轉生 第二季',year:'2023'},{id:2,title:'無職轉生 ～到了異世界就拿出真本事～第三季',year:'2026'}];
-const env={TITLE_MATCH_LLM_COOKIE:'test-token'};
+const env={TITLE_MATCH_LLM_API_KEY:'test-token'};
 test('short query removes Roman season suffix while preserving full identity',()=>{
   assert.deepEqual(titleQueries(item.title),[item.title,'無職轉生']);
 });
@@ -13,11 +13,11 @@ test('exact identity has no LLM request; disabled fallback never calls LLM',asyn
   assert.equal(await chooseTitle({...item,title:candidates[1].title},candidates,env),candidates[1]);
   assert.equal(await chooseTitle(item,candidates,{}),null);
 });
-test('SSE response selects a real same-year candidate, cookie stays on fixed backend',async t=>{
+test('SSE response selects a real same-year candidate, API key stays on fixed backend',async t=>{
   t.mock.method(globalThis,'fetch',async (url,init)=>{
-    assert.equal(url,'https://chat.codeboxhk.com/api/chat');assert.equal(init.redirect,'error');
-    assert.equal(init.headers.Cookie,'llmchat_auth=test-token');
-    const body=JSON.parse(init.body);assert.equal(body.stream,true);assert.equal(body.webSearch,false);
+    assert.equal(url,'https://llm-web-api-ttfg.onrender.com/v1/chat/completions');assert.equal(init.redirect,'error');
+    assert.equal(init.headers.Authorization,'Bearer test-token');
+    const body=JSON.parse(init.body);assert.equal(body.stream,true);assert.equal(body.endpoint,undefined);assert.equal(body.webSearch,undefined);assert.equal(init.headers.Cookie,undefined);
     const input=JSON.parse(body.messages[1].content);assert.equal(input.candidates.length,1);assert.equal(input.candidates[0].year,'2026');
     return new Response('data: '+JSON.stringify({choices:[{delta:{content:'{"index":0,'}}]})+'\n\ndata: '+JSON.stringify({choices:[{delta:{content:'"confidence":0.99}'}}]})+'\n\ndata: [DONE]\n\n');
   });
@@ -44,7 +44,7 @@ test('concurrent requests deduplicate, success and errors cache, cache-only read
 test('anime 1921 fallback reuses identity across episodes and rejects ambiguous episode numbers',async t=>{
   let llm=0;
   t.mock.method(globalThis,'fetch',async url=>{
-    if(url==='https://chat.codeboxhk.com/api/chat'){llm++;return Response.json({content:'{"index":0,"confidence":0.99}'});}
+    if(url==='https://llm-web-api-ttfg.onrender.com/v1/chat/completions'){llm++;return Response.json({content:'{"index":0,"confidence":0.99}'});}
     if(url.includes('search.php'))return Response.json({anime:[{video_sn:100,title:candidates[1].title}]});
     if(url.includes('video.php'))return Response.json({data:{anime:{title:candidates[1].title,seasonStart:'2026-07-01',episodes:{all:[{videoSn:100,episode:'1'},{videoSn:101,episode:'2'},{videoSn:102,episode:'3'},{videoSn:103,episode:'3'}]}},video:{}}});
     throw new Error('unexpected '+url);
@@ -57,4 +57,16 @@ test('anime 1921 fallback reuses identity across episodes and rejects ambiguous 
 test('malformed responses and authentication failure are safely negative cached',async t=>{
   t.mock.method(globalThis,'fetch',async()=>new Response('Unauthorized',{status:401}));
   assert.equal(await titleMatchCached('auth-failed',()=>chooseTitle(item,candidates,env)),null);
+});
+
+test('published client assets never contain gateway configuration; server bundle is excluded',async()=>{
+  const {readFile,readdir}=await import('node:fs/promises');
+  const root=new URL('../dist/',import.meta.url);
+  for(const name of await readdir(root)){
+    if(!/\.(js|html|css|json)$/.test(name)||name==='_worker.js')continue;
+    const content=await readFile(new URL(name,root),'utf8');
+    assert.doesNotMatch(content,/llm-web-api-ttfg|TITLE_MATCH_LLM_API_KEY|TITLE_MATCH_LLM_COOKIE|llmchat_auth/);
+  }
+  const excluded=await readFile(new URL('.assetsignore',root),'utf8');
+  assert.ok(excluded.split(/\r?\n/).includes('_worker.js'));
 });

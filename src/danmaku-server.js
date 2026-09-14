@@ -202,7 +202,7 @@ async function dandanComments(id,env){
 // Cache series identity, never episode-number guesses. Manual settings remain authoritative.
 export async function fallbackDanmaku(item,provider,episode,env={}){
   if(!['bahamut','dandanplay'].includes(provider)||!/^\d+(?:\.\d+)?$/.test(episode||''))throw new PlaybackError('配對資料無效。',400);
-  if(!env.TITLE_MATCH_LLM_COOKIE)return {sources:[]};
+  if(!env.TITLE_MATCH_LLM_API_KEY)return {sources:[]};
   const identity=await titleMatchCached('danmaku:'+JSON.stringify([provider,item.id,item.title,item.year]),async()=>{
     const found=new Map();
     for(const query of titleQueries(item.title)){
