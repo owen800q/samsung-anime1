@@ -1,6 +1,6 @@
 # Anime1 TV — Cloudflare
 
-A standalone, anonymous player designed for Samsung TV browsers. No ChatGPT login, SDK, external fonts, CDN scripts, API keys, or browser-side playback cookies are required. This is an independent compatibility interface, not the official Anime1 website.
+A standalone, anonymous player designed for Samsung TV browsers. No login, SDK, external fonts, CDN scripts, API keys, or browser-side playback cookies are required. This is an independent compatibility interface, not the official Anime1 website.
 
 ## Deploy
 
