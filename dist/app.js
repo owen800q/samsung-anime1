@@ -29,7 +29,7 @@
     video.currentTime=saved.completed?0:Math.min(saved.position,Math.max(0,video.duration-0.25));
     $('resume-status').hidden=false;$('resume-status').textContent=saved.completed?'本集已看完，從頭播放。':'已接續上次進度 '+S.time(video.currentTime);
   }
-  function stop(){window.TVDanmaku?.stop();saveProgress();watchArmed=false;pendingResume=null;generation++;request?.abort();video.pause();controls(false);}
+  function stop(){void window.TVPlayer?.leave();window.TVDanmaku?.stop();saveProgress();watchArmed=false;pendingResume=null;generation++;request?.abort();video.pause();controls(false);}
   function controls(loading) {
     busy = loading;
     ['play','fullscreen'].forEach(id => { $(id).disabled = busy || !playback; });
@@ -155,10 +155,6 @@
   $('reload').addEventListener('click', () => { if (requestedUrl) void prepare(requestedUrl, true, {seriesId:selectedSeries,seriesTitle:selectedTitle}); });
   $('previous').addEventListener('click', () => { if (playback?.previous) void prepare(playback.previous.url); });
   $('next').addEventListener('click', () => { if (playback?.next) void prepare(playback.next.url); });
-  $('fullscreen').addEventListener('click', async () => {
-    try { if (document.fullscreenElement) await document.exitFullscreen(); else if ($('screen').requestFullscreen) await $('screen').requestFullscreen(); else if (video.webkitEnterFullscreen) video.webkitEnterFullscreen(); else error('請使用影片內建的全螢幕按鈕。'); }
-    catch { error('請使用影片內建的全螢幕按鈕。'); }
-  });
   video.addEventListener('playing', () => { restorePosition();watchArmed=true;lastSavedAt=Date.now();status('播放中'); $('play').textContent = '❚❚ 暫停'; error(''); });
   video.addEventListener('pause', () => { saveProgress();if (playback) status('已暫停'); $('play').textContent = '▶ 播放'; });
   video.addEventListener('waiting', () => { if (playback) status('緩衝中…'); });
@@ -187,6 +183,7 @@
     let best = null; let bestScore = Infinity;
     document.querySelectorAll('button:not(:disabled),input,select,a[href],video').forEach(candidate => {
       if (candidate === current || candidate.closest('[hidden]')) return;
+      if(window.TVPlayer?.isExpanded()&&!window.TVPlayer.contains(candidate))return;
       const r = candidate.getBoundingClientRect(); if (!r.width || !r.height) return;
       const dx=r.x+r.width/2-x, dy=r.y+r.height/2-y; const forward=dx*direction[0]+dy*direction[1];
       if (forward <= 1) return; const score=forward+Math.abs(dx*direction[1]-dy*direction[0])*3;

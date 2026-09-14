@@ -2,7 +2,7 @@
   Referrer-Policy: no-referrer
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY
-  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; media-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'sha256-hQVXQw/CxkTgeQNk46Yk7NuO0PwZzmzvImJff8WUXnU=' 'sha256-+nE8eYnx0UtCnL1Iht9aXz1W5v4C/wZG6rJc2cJd6mY='; img-src 'self' data:; media-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'
 /app.js
   Cache-Control: public, max-age=0, must-revalidate
 /style.css
@@ -17,4 +17,7 @@
 /danmaku.js
   Cache-Control: public, max-age=0, must-revalidate
 /danmaku.css
+  Cache-Control: public, max-age=0, must-revalidate
+
+/player.js
   Cache-Control: public, max-age=0, must-revalidate

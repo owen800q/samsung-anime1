@@ -3,8 +3,8 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const out = path.join(root, 'dist');
-await mkdir(out, { recursive: true });
-for (const file of ['index.html','style.css','app.js','home.js','home.css','state.js','danmaku.js','danmaku.css','favicon.svg','_headers','_routes.json','.assetsignore']) await copyFile(path.join(root,'src',file),path.join(out,file));
+await mkdir(path.join(out,'vendor'), { recursive: true });
+for (const file of ['index.html','style.css','app.js','home.js','home.css','state.js','danmaku.js','danmaku.css','player.js','vendor/dplayer-1.27.1.min.js','vendor/DPlayer-LICENSE','favicon.svg','_headers','_routes.json','.assetsignore']) await copyFile(path.join(root,'src',file),path.join(out,file));
 const modules=[];
 for(const file of ['catalog-data.js','adapter.js','catalog.js','danmaku-server.js','sync-server.js','worker.js']){
   let code=(await readFile(path.join(root,'src',file),'utf8')).replace(/^import .*;\n/gm,'');

@@ -9,7 +9,7 @@
 .episode-button:focus{outline:3px solid var(--primary);outline-offset:4px}.episode-button{scroll-margin-block:24px}
 /* Leave room for playback controls and the first episode row on desktop/TV. */
 @media(min-width:1051px){
-  #screen:not(:fullscreen){width:calc((100vh - 420px) * 16 / 9);min-width:360px;max-width:100%;margin:0 auto}
+  #screen:not(:fullscreen):not(.dplayer-fulled){width:calc((100vh - 420px) * 16 / 9);min-width:360px;max-width:100%;margin:0 auto}
   #watch-player .now-playing{margin:12px 0 8px}
   #watch-player .now-playing h2{margin:0}
   #watch-player .resume-reminder{margin:6px 0}
@@ -19,3 +19,18 @@
   #watch-player>.episode-picker .episode-grid{margin-top:8px}
 }
 @media(max-width:560px){.episode-picker{padding:18px}.episode-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}}
+
+/* DPlayer controls and the shared source canvas stay inside the same fullscreen element. */
+#screen .dplayer-video-wrap{height:100%}
+#screen #danmaku-canvas{z-index:2}
+#screen .dplayer-controller-mask{z-index:3}
+#screen .dplayer-controller{z-index:4}
+#screen .dplayer-setting,#screen .dplayer-menu{z-index:5}
+#screen .screen-empty{z-index:6}
+#screen .dplayer-controller .dplayer-icons .dplayer-icon{width:44px;height:44px}
+#screen:focus-within .dplayer-controller{opacity:1;transform:translateY(0)}
+#screen .player-exit{position:absolute;top:14px;right:14px;z-index:10;border:1px solid #98f2d1;border-radius:9px;padding:10px 16px;background:#131d2ae6;color:#f4f7fb;font-size:16px;min-height:44px}
+#screen.dplayer-fulled{position:fixed;inset:0;width:100%;height:100%;min-width:0;max-width:none;margin:0;border:0;border-radius:0;aspect-ratio:auto;z-index:10000}
+#screen:fullscreen{width:100%;height:100%;min-width:0;max-width:none;margin:0;border:0;border-radius:0;aspect-ratio:auto}
+#screen:-webkit-full-screen{width:100%;height:100%;min-width:0;max-width:none;margin:0;border:0;border-radius:0;aspect-ratio:auto}
+body.dplayer-web-fullscreen-fix{overflow:hidden}
