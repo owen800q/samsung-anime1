@@ -108,3 +108,49 @@ test('automatic pairing requires exact title, year and episode; no match for ano
   assert.equal(Boolean(f.stored.get('3')?.source),year==='2026');
  }
 });
+
+const dandanSource={provider:'dandanplay',id:'30',url:'https://api.dandanplay.net/api/v2/bangumi/3?episodeId=30',title:'Dandan fixture',offset:0};
+test('all sources draw together, duplicates collapse, filter never saves or refetches',async()=>{
+ const f=fixture();f.stored.set('1',{...f.entry('1'),sources:[{...f.source,offset:0},dandanSource]});
+ f.hook.fetch=async url=>Response.json({comments:[{time:1,mode:1,color:'#ffffff',text:'shared'},{time:1,mode:1,color:'#ffffff',text:url.includes('dandanplay')?'dandan':'bahamut'}]});
+ await f.open(1);await flush();f.video.currentTime=2;f.fire('video','seeked');assert.deepEqual(f.draws.map(x=>x.text).sort(),['bahamut','dandan','shared']);
+ const requests=f.requests.length,revision=f.stored.get('1').revision;
+ f.fire('danmaku-filter-dandanplay','click');assert.deepEqual(f.draws.map(x=>x.text).sort(),['dandan','shared']);
+ f.fire('danmaku-filter-bahamut','click');assert.deepEqual(f.draws.map(x=>x.text).sort(),['bahamut','shared']);
+ f.fire('danmaku-filter-all','click');assert.equal(f.draws.length,3);assert.equal(f.requests.length,requests);assert.equal(f.stored.get('1').revision,revision);
+ await f.open(1);await flush();assert.equal(f.get('danmaku-filter-all').attrs['aria-pressed'],'true');
+});
+test('one source fails without blocking another; retry keeps healthy data',async()=>{
+ const f=fixture();f.stored.set('1',{...f.entry('1'),sources:[{...f.source,offset:0},dandanSource]});let fail=true;
+ f.hook.fetch=async url=>url.includes('dandanplay')&&fail?Response.json({error:'quota exhausted'},{status:502}):Response.json({comments:[{time:1,mode:1,color:'#ffffff',text:url.includes('dandanplay')?'dandan':'bahamut'}]});
+ await f.open(1);await flush();f.video.currentTime=2;f.fire('video','seeked');assert.deepEqual(f.draws.map(x=>x.text),['bahamut']);assert.match(f.get('danmaku-status').textContent,/quota exhausted/);
+ const healthyCalls=f.requests.filter(x=>x.includes('bahamut')).length;fail=false;f.fire('danmaku-retry','click');await flush();await flush();assert.equal(f.requests.filter(x=>x.includes('bahamut')).length,healthyCalls);assert.deepEqual(f.draws.map(x=>x.text).sort(),['bahamut','dandan']);
+});
+test('adds Dandanplay automatically to an existing Bahamut pairing and preserves its offset',async()=>{
+ const f=fixture();f.stored.set('1',{...f.entry('1'),offset:4});
+ f.hook.fetch=async url=>url.includes('catalog-item')?Response.json({item:{title:'fixture',year:'2026',bgmId:456}}):url.includes('/providers')?Response.json({dandanplay:true}):url.includes('/match?')?Response.json({sources:[dandanSource]}):Response.json({comments:[{time:1,mode:1,color:'#ffffff',text:url.includes('dandanplay')?'dandan':'bahamut'}]});
+ await f.open(1,{seriesId:'1911'});for(let i=0;i<6;i++)await flush();
+ assert.deepEqual(JSON.parse(JSON.stringify(f.stored.get('1').sources.map(x=>[x.provider,x.offset]))),[['bahamut',4],['dandanplay',0]]);
+ assert.ok(f.requests.some(x=>x.includes('provider=dandanplay')));
+});
+test('per-source offset changes only selected source, survives seeks and preserves others',async()=>{
+ const f=fixture();f.stored.set('1',{...f.entry('1'),sources:[{...f.source,offset:0},dandanSource]});
+ await f.open(1);await flush();f.get('danmaku-offset-source').value='dandanplay';f.get('danmaku-offset').value='5';f.fire('danmaku-offset-form','submit');await flush();await flush();
+ assert.deepEqual(f.stored.get('1').sources.map(x=>x.offset),[0,5]);
+ f.video.currentTime=2;f.fire('video','seeked');assert.equal(f.draws.length,1);
+ f.fire('danmaku-filter-dandanplay','click');assert.equal(f.draws.length,0);
+ f.video.currentTime=7;f.fire('video','seeked');assert.ok(f.draws.length);
+});
+test('late additional Dandanplay match cannot restore a manually cleared mapping',async()=>{
+ const f=fixture();let release;
+ f.hook.fetch=async url=>url.includes('catalog-item')?Response.json({item:{title:'fixture',year:'2026',bgmId:456}}):url.includes('/providers')?Response.json({dandanplay:true}):url.includes('/match?')?new Promise(r=>release=()=>r(Response.json({sources:[dandanSource]}))):Response.json({comments:[]});
+ await f.open(1,{seriesId:'1911'});for(let i=0;i<3;i++)await flush();assert.ok(release);
+ f.fire('danmaku-clear','click');await flush();release();for(let i=0;i<4;i++)await flush();
+ assert.equal(f.stored.get('1').sources.length,0);assert.equal(f.stored.get('1').revision,2);
+ assert.ok(!f.requests.some(x=>x.includes('/comments?provider=dandanplay')));
+});
+test('missing cross-database mapping falls back to exact title, year and episode',async()=>{
+ const f=fixture();f.hook.fetch=async url=>url.includes('catalog-item')?Response.json({item:{title:'fixture',year:'2026',bgmId:456}}):url.includes('/providers')?Response.json({dandanplay:true}):url.includes('/match?')?Response.json({error:'No mapping'},{status:502}):url.includes('/search?')?Response.json({results:[{title:'fixture',year:'2026',url:dandanSource.url}]}):url.includes('/resolve?')?Response.json({title:'fixture',episodes:[{...dandanSource,label:'1'}]}):Response.json({comments:[]});
+ await f.open(1,{seriesId:'1911'});for(let i=0;i<6;i++)await flush();
+ assert.equal(f.stored.get('1').sources[1].provider,'dandanplay');assert.doesNotMatch(f.get('danmaku-status').textContent,/No mapping/);
+});

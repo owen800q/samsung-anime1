@@ -3,57 +3,86 @@
   const $=id=>document.getElementById(id),video=$('video'),canvas=$('danmaku-canvas'),ctx=canvas.getContext('2d'),S=window.TVState;
   let episode=null,setting=null,epoch=0,controller=null,searchEpoch=0,searchController=null,saving=false;
   let segments=new Map(),pending=new Set(),failed=new Set(),layout=[],raf=0,layoutKey='',sourceEpoch=0;
-  let enabled=true,density=8;
+  let enabled=true,density=8,filter='all',matchErrors=[],matching=false;
+  const providerName=p=>({bahamut:'動畫瘋',bilibili:'Bilibili',dandanplay:'彈彈play（含關聯來源）'})[p]||p;
+  const sources=()=>setting?.sources||(setting?.source?[{...setting.source,offset:setting.offset||0}]:[]);
+  const sourceKey=src=>src.provider+':'+src.id;
+  const visibleSource=src=>filter==='all'||filter===src.provider;
   try{density=Number(localStorage.getItem('anime1-danmaku-density'))||8;}catch{}
   if(![4,8,12].includes(density))density=8;
   $('danmaku-density').value=String(density);
   const status=text=>{$('danmaku-status').textContent=text;};
   const searchStatus=text=>{$('danmaku-search-status').textContent=text;};
-  const currentSegment=()=>setting?.source?.provider==='bilibili'?Math.max(1,Math.floor(Math.max(0,video.currentTime-(setting?.offset||0))/360)+1):1;
+  const currentSegment=src=>src.provider==='bilibili'?Math.max(1,Math.floor(Math.max(0,video.currentTime-(src.offset||0))/360)+1):1;
   const normal=s=>String(s).normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]/gu,'');
   // Bahamut's series/search title can include the currently selected episode.
   // Strip only numeric episode suffixes, not season numbers or special labels.
   const seriesName=s=>normal(String(s).normalize('NFKC').replace(/\s*\[\d+(?:\.\d+)?\]\s*$/,''));
   async function json(path,signal){const r=await fetch(path,{signal:AbortSignal.any([signal,AbortSignal.timeout(15000)])});const d=await r.json();if(!r.ok)throw new Error(d.error||'彈幕暫時無法讀取。');return d;}
   function settingsUI(){
-    const src=setting?.source;
-    $('danmaku-current').textContent=src?(src.provider==='bahamut'?'動畫瘋':'Bilibili')+' · '+src.title:'本集未配對彈幕';
-    $('danmaku-source-link').hidden=!src;if(src)$('danmaku-source-link').href=src.url;
-    $('danmaku-offset').value=String(setting?.offset||0);
+    const list=sources(),src=list[0];
+    $('danmaku-current').textContent=list.length?list.map(x=>providerName(x.provider)+' · '+x.title).join(' ／ '):'本集未配對彈幕';
+    $('danmaku-source-link').hidden=true;if(src)$('danmaku-source-link').href=src.url;
+    $('danmaku-source-list').replaceChildren();
+    for(const x of list){const link=document.createElement('a');link.textContent=providerName(x.provider)+' · '+x.title+' ↗';link.href=x.provider==='dandanplay'?'https://www.dandanplay.com/':x.url;link.target='_blank';link.rel='noreferrer';link.className='source-link';$('danmaku-source-list').append(link);}
+    $('danmaku-offset-source').replaceChildren();
+    for(const x of list){const option=document.createElement('option');option.value=x.provider;option.textContent=providerName(x.provider);$('danmaku-offset-source').append(option);}
+    $('danmaku-offset-source').value=src?.provider||'';$('danmaku-offset').value=String(src?.offset||0);
+    for(const p of ['bahamut','bilibili','dandanplay'])$('danmaku-filter-'+p).hidden=!list.some(x=>x.provider===p);
+    if(filter!=='all'&&!list.some(x=>x.provider===filter))filter='all';filterUI();
   }
+  function filterUI(){for(const p of ['all','bahamut','bilibili','dandanplay'])$('danmaku-filter-'+p).setAttribute('aria-pressed',String(filter===p));}
   function clearCanvas(){if(ctx)ctx.clearRect(0,0,canvas.width,canvas.height);}
   function resetSource(){sourceEpoch++;segments.clear();pending.clear();failed.clear();layout=[];layoutKey='';clearCanvas();$('danmaku-retry').hidden=true;}
-  function stop(){epoch++;episode=null;setting=null;controller?.abort();searchController?.abort();searchEpoch++;saving=false;resetSource();cancelAnimationFrame(raf);raf=0;}
-  async function loadSegment(index){
-    if(!enabled||!setting?.source||pending.has(index)||segments.has(index)||failed.has(index)||index>240)return;
-    pending.add(index);const e=epoch,g=sourceEpoch,src=setting.source,signal=controller.signal;
+  function stop(){epoch++;episode=null;setting=null;controller?.abort();searchController?.abort();searchEpoch++;saving=false;matchErrors=[];matching=false;resetSource();cancelAnimationFrame(raf);raf=0;}
+  async function loadSegment(src,index){
+    const key=sourceKey(src)+':'+index;
+    if(!enabled||pending.has(key)||segments.has(key)||failed.has(key)||index>240)return;
+    pending.add(key);const e=epoch,g=sourceEpoch,signal=controller.signal;
     try{
       const data=await json('/api/danmaku/comments?provider='+src.provider+'&id='+encodeURIComponent(src.id)+'&segment='+index,signal);
       if(e!==epoch||g!==sourceEpoch)return;
       if(!Array.isArray(data.comments))throw new Error('彈幕資料不完整。');
-      segments.set(index,data.comments);layoutKey='';
-      for(const k of segments.keys())if(Math.abs(k-currentSegment())>1)segments.delete(k);
-      const count=[...segments.values()].reduce((n,a)=>n+a.length,0);
-      status(count?'已載入 '+count+' 條彈幕 · '+(src.provider==='bahamut'?'動畫瘋':'Bilibili'):'本時段暫時未有彈幕');draw();
-    }catch(e2){if(e===epoch&&g===sourceEpoch&&!signal.aborted){failed.add(index);status(e2.message||'彈幕讀取失敗，影片仍可播放。');$('danmaku-retry').hidden=false;}}
-    finally{if(e===epoch&&g===sourceEpoch)pending.delete(index);}
+      segments.set(key,{src,index,comments:data.comments});layoutKey='';
+      for(const [k,v] of segments)if(v.src.provider==='bilibili'&&Math.abs(v.index-currentSegment(v.src))>1)segments.delete(k);
+      loadedStatus();draw();
+    }catch(error){if(e===epoch&&g===sourceEpoch&&!signal.aborted){failed.add(key);matchErrors=matchErrors.filter(x=>x.key!==key);matchErrors.push({key,text:providerName(src.provider)+'：'+(error.message||'讀取失敗')});loadedStatus();}}
+    finally{if(e===epoch&&g===sourceEpoch){pending.delete(key);loadedStatus();}}
   }
   function ensureSegments(){
-    if(!enabled||!episode||!setting?.source)return;
-    const index=currentSegment();void loadSegment(index);
-    if(setting.source.provider==='bilibili'){
-      const time=Math.max(0,video.currentTime-setting.offset);
-      if(time%360<15&&index>1)void loadSegment(index-1);
-      if(time%360>330&&(!Number.isFinite(video.duration)||video.currentTime+30<video.duration))void loadSegment(index+1);
+    if(!enabled||!episode)return;
+    for(const src of sources()){
+      const index=currentSegment(src);void loadSegment(src,index);
+      if(src.provider==='bilibili'){
+        const time=Math.max(0,video.currentTime-(src.offset||0));
+        if(time%360<15&&index>1)void loadSegment(src,index-1);
+        if(time%360>330&&(!Number.isFinite(video.duration)||video.currentTime+30<video.duration))void loadSegment(src,index+1);
+      }
     }
+  }
+  function mergedComments(){
+    const seen=new Set(),out=[];
+    for(const {src,comments} of segments.values()){
+      if(!visibleSource(src))continue;
+      for(const c of comments){
+        const time=c.time+(src.offset||0);
+        const key=time.toFixed(2)+':'+c.mode+':'+c.text;
+        if(seen.has(key))continue;seen.add(key);out.push({...c,time});
+      }
+    }
+    return out.sort((a,b)=>a.time-b.time);
   }
   function loadedStatus(){
     if(!enabled){status('彈幕已關閉');return;}
-    if(!segments.size)return;
-    const count=[...segments.values()].reduce((n,a)=>n+a.length,0);
-    status(count?'已載入 '+count+' 條彈幕 · '+(setting?.source?.provider==='bahamut'?'動畫瘋':'Bilibili'):'本時段暫時未有彈幕');
+    const count=mergedComments().length;
+    const detail=sources().filter(visibleSource).map(src=>{
+      const count=[...segments.values()].filter(x=>sourceKey(x.src)===sourceKey(src)).reduce((n,x)=>n+x.comments.length,0);
+      return providerName(src.provider)+' '+count;
+    }).join(' · ');
+    status((count?'已載入 '+count+' 條彈幕':pending.size?'正在讀取本集彈幕…':sources().length?'本時段暫時未有彈幕':'本集未配對彈幕，未找到能確定對應本集的來源')+(detail?' · '+detail:'')+(matching?' · 正在配對其他來源…':'')+(matchErrors.length?'；'+matchErrors.map(x=>x.text).join('；'):''));
+    $('danmaku-retry').hidden=!matchErrors.length&&!failed.size;
   }
-  function startSource(){resetSource();settingsUI();if(!setting?.source){status('本集未配對彈幕，請選擇來源。');return;}status(enabled?'正在讀取本集彈幕…':'彈幕已關閉');ensureSegments();}
+  function startSource(){matchErrors=matchErrors.filter(x=>x.key.startsWith('match'));resetSource();settingsUI();if(!sources().length){status('本集未配對彈幕，會自動尋找對應來源。');return;}ensureSegments();loadedStatus();}
   async function refreshSetting(){
     if(!episode||saving)return;const e=epoch,revision=setting?.revision;
     try{
@@ -62,10 +91,12 @@
       if(!setting||data.entry.revision!==setting.revision){setting=data.entry;startSource();}
     }catch(error){if(e===epoch&&!controller.signal.aborted){status(error.message||'彈幕設定同步失敗，請重試。');$('danmaku-retry').hidden=false;}}
   }
-  async function saveSource(source,offset=0){
+  async function saveSource(source,offset=0,complete=null){
+    const list=complete||(!source?[]:[...sources().filter(x=>x.provider!==source.provider),{...source,offset}]);
+    searchEpoch++;
     if(!episode||saving)return false;const e=epoch;const id=episode.episodeId;saving=true;status('正在儲存本集彈幕設定…');
     try{
-      const r=await S.danmakuSettings(id,{episodeId:id,source,offset,revision:setting?.revision||0},AbortSignal.any([controller.signal,AbortSignal.timeout(10000)]));const data=await r.json();
+      const r=await S.danmakuSettings(id,{episodeId:id,source:list[0]||null,sources:list,offset:list[0]?.offset||0,revision:setting?.revision||0},AbortSignal.any([controller.signal,AbortSignal.timeout(10000)]));const data=await r.json();
       if(e!==epoch)return false;
       if(r.status===409){setting=data.entry;startSource();throw new Error('另一裝置已更新配對，已載入最新設定，請重新選擇。');}
       if(!r.ok)throw new Error(data.error||'未能儲存彈幕設定。');setting=data.entry;startSource();return true;
@@ -86,49 +117,71 @@
     if(!episode)return;const q=$('danmaku-query').value.trim();if(!q)return;
     if(/^https?:\/\/|^BV[0-9A-Za-z]{10}$/.test(q)){await showEpisodes(q);return;}
     const e=epoch,g=++searchEpoch;searchController?.abort();searchController=new AbortController();const signal=searchController.signal;
-    searchStatus('正在搜尋動畫瘋…');$('danmaku-results').replaceChildren();
-    try{const d=await json('/api/danmaku/search?q='+encodeURIComponent(q),signal);if(e!==epoch||g!==searchEpoch)return;
-      searchStatus(d.results.length?'選擇動畫，再選對應集數':'未找到來源，試下別名或貼完整來源網址。');
-      for(const item of d.results)resultButton('動畫瘋 · '+item.title,()=>showEpisodes(item.url));
+    searchStatus('正在搜尋彈幕來源…');$('danmaku-results').replaceChildren();
+    try{
+      const availability=await json('/api/danmaku/providers',signal);
+      const providers=['bahamut',...(availability.dandanplay?['dandanplay']:[])];
+      const results=await Promise.allSettled(providers.map(provider=>json('/api/danmaku/search?q='+encodeURIComponent(q)+'&provider='+provider,signal)));
+      if(e!==epoch||g!==searchEpoch)return;
+      const items=results.flatMap(r=>r.status==='fulfilled'?r.value.results:[]);
+      const errors=results.flatMap((r,i)=>r.status==='rejected'?[providerName(providers[i])+': '+r.reason.message]:[]);
+      searchStatus((items.length?'選擇動畫，再加入對應集數':'未找到來源，試下別名或貼完整來源網址。')+(errors.length?'；'+errors.join('；'):''));
+      for(const item of items)resultButton(providerName(item.provider)+' · '+item.title,()=>showEpisodes(item.url));
       $('danmaku-results').querySelector('button')?.focus();
     }catch(error){if(e===epoch&&g===searchEpoch&&!signal.aborted)searchStatus(error.message||'搜尋失敗。');}
   }
-  // Automatic pairing: normalized series title/alias AND year AND unique episode.
+  // Add missing providers without replacing saved/manual pairings. Never guess seasons.
   async function autoMatch(info,e,g){
-    if(!enabled||!info.seriesId)return;
+    if(!info?.seriesId||matching||setting?.revision&&!sources().length)return;
     const n=info.title.match(/\[(\d+(?:\.\d+)?)\]\s*$/)?.[1];if(!n)return;
-    const signal=controller.signal;
-    const current=()=>e===epoch&&g===searchEpoch&&!setting?.revision&&!saving&&!signal.aborted;
-    const noMatch=()=>{if(current())status('未找到能確定對應本集的彈幕來源，影片仍可播放。');};
-    status('正在自動配對本集彈幕…');
+    const signal=controller.signal,revision=setting?.revision;
+    const current=()=>e===epoch&&g===searchEpoch&&revision===setting?.revision&&!saving&&!signal.aborted;
+    matching=true;loadedStatus();
     try{
       const {item}=await json('/api/catalog-item?id='+encodeURIComponent(info.seriesId),signal);
       if(!current())return;
-      const title=item.title;const names=[title,...(item.aliases||[])].map(seriesName);
-      const found=await json('/api/danmaku/search?q='+encodeURIComponent(title),signal);
-      if(!current())return;
-      const exact=found.results.filter(x=>names.includes(seriesName(x.title)));if(exact.length!==1){noMatch();return;}
-      const d=await json('/api/danmaku/resolve?url='+encodeURIComponent(exact[0].url),signal);
-      if(!current())return;
-      if(!names.includes(seriesName(d.title))||!/^\d{4}$/.test(d.year)||d.year!==String(item.year)){noMatch();return;}
-      const eps=d.episodes.filter(x=>/^\d+(?:\.\d+)?$/.test(x.label)&&Number(x.label)===Number(n));
-      if(eps.length!==1){noMatch();return;}
-      const ep=eps[0];await saveSource({provider:ep.provider,id:ep.id,url:ep.url,title:ep.title});
-    }catch(error){if(current()){status('自動配對暫時失敗：'+(error.message||'來源無法讀取')+'；影片仍可播放。');$('danmaku-retry').hidden=false;}}
+      const names=[item.title,...(item.aliases||[])].map(seriesName);
+      const pair=async provider=>{
+        if(sources().some(x=>x.provider===provider))return null;
+        let mappingError;
+        if(provider==='dandanplay'&&item.bgmId){
+          try{const match=await json('/api/danmaku/match?bgmId='+item.bgmId+'&episode='+encodeURIComponent(n),signal);if(match.sources.length===1)return match.sources[0];}
+          catch(error){if(signal.aborted)throw error;mappingError=error;}
+        }
+        const noMatch=()=>{if(mappingError)throw mappingError;return null;};
+        const found=await json('/api/danmaku/search?q='+encodeURIComponent(item.title)+'&provider='+provider,signal);
+        const exact=found.results.filter(x=>names.includes(seriesName(x.title)));
+        if(exact.length!==1)return noMatch();
+        const d=await json('/api/danmaku/resolve?url='+encodeURIComponent(exact[0].url),signal);
+        const year=d.year||exact[0].year;
+        if(![d.title,...(d.aliases||[])].some(x=>names.includes(seriesName(x)))||!/^\d{4}$/.test(year)||year!==String(item.year))return noMatch();
+        const eps=d.episodes.filter(x=>/^\d+(?:\.\d+)?$/.test(x.label)&&Number(x.label)===Number(n));
+        return eps.length===1?eps[0]:noMatch();
+      };
+      const jobs=[pair('bahamut'),(async()=>{const availability=await json('/api/danmaku/providers',signal);if(!availability.dandanplay)throw new Error('彈彈play 尚未完成後端配置');return pair('dandanplay');})()];
+      const results=await Promise.allSettled(jobs);if(!current())return;
+      matchErrors=[...matchErrors.filter(x=>!x.key.startsWith('match')),...results.flatMap((r,i)=>r.status==='rejected'?[{key:'match:'+i,text:'自動配對暫時失敗：'+r.reason.message}]:[])];
+      const additions=results.flatMap(r=>r.status==='fulfilled'&&r.value?[{...r.value,offset:0}]:[]);
+      matching=false;
+      if(additions.length){const saved=await saveSource(null,0,[...sources(),...additions]);if(!saved)return;}
+      else if(!sources().length&&!matchErrors.length){status('未找到能確定對應本集的彈幕來源，影片仍可播放。');return;}
+      loadedStatus();
+    }catch(error){if(current()){matchErrors=[{key:'match',text:'自動配對暫時失敗：'+(error.message||'來源無法讀取')}];}}
+    finally{if(e===epoch){matching=false;if(matchErrors.length)loadedStatus();}}
   }
   async function open(info){
-    stop();enabled=true;toggleUI();episode=info;controller=new AbortController();const e=epoch;
+    stop();filter='all';enabled=true;toggleUI();episode=info;controller=new AbortController();const e=epoch;
     $('danmaku-settings').hidden=true;$('danmaku-config').setAttribute('aria-expanded','false');$('danmaku-results').replaceChildren();searchStatus('');
     $('danmaku-query').value=info.seriesTitle||info.title;status('正在讀取本集彈幕設定…');settingsUI();
     await refreshSetting();if(e!==epoch)return;
-    if(setting&&!setting.source&&!setting.revision)void autoMatch(info,e,searchEpoch);
+    if(setting)void autoMatch(info,e,searchEpoch);
   }
 
   function buildLayout(w,h){
     const font=Math.max(16,Math.min(32,w/36)),rows=Math.max(3,Math.min(density,Math.floor(h/(font*1.45)))),speed=w/7;
     ctx.font='600 '+font+'px Arial, sans-serif';
     const laneEnds=Array(rows).fill(-Infinity),fixedEnds=Array(rows).fill(-Infinity);layout=[];
-    const all=[...segments.values()].flat().sort((a,b)=>a.time-b.time);
+    const all=mergedComments();
     for(const c of all){
       const width=Math.min(w,ctx.measureText(c.text).width);let lane=-1;
       if(c.mode===1){for(let i=1;i<rows-1;i++)if(laneEnds[i]<=c.time){lane=i;break;}if(lane<0)continue;laneEnds[lane]=c.time+(width+24)/speed;}
@@ -142,10 +195,10 @@
     if(!ctx)return;
     const w=canvas.clientWidth,h=canvas.clientHeight,dpr=Math.min(2,window.devicePixelRatio||1);
     if(!w||!h)return;
-    const key=[w,h,dpr,density,[...segments.entries()].map(([k,v])=>k+':'+v.length).join(',')].join('|');
+    const key=[w,h,dpr,density,filter,[...segments.entries()].map(([k,v])=>k+':'+v.comments.length).join(',')].join('|');
     if(key!==layoutKey){canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);metrics=buildLayout(w,h);layoutKey=key;}
-    ctx.clearRect(0,0,w,h);if(!enabled||!episode||!setting?.source)return;
-    const time=video.currentTime-setting.offset;
+    ctx.clearRect(0,0,w,h);if(!enabled||!episode||!sources().length)return;
+    const time=video.currentTime;
     let lo=0,hi=layout.length;while(lo<hi){const mid=(lo+hi)>>1;if(layout[mid].time<time-15)lo=mid+1;else hi=mid;}
     ctx.font='600 '+metrics.font+'px Arial, sans-serif';ctx.lineWidth=3;ctx.strokeStyle='#000000';ctx.globalAlpha=.85;
     for(let i=lo;i<layout.length;i++){const c=layout[i],age=time-c.time;if(age<0)break;if(age>c.duration)continue;const x=c.mode===1?w-age*metrics.speed:(w-c.width)/2;ctx.fillStyle=c.color;ctx.strokeText(c.text,x,c.y,w);ctx.fillText(c.text,x,c.y,w);}
@@ -156,11 +209,13 @@
   function toggleUI(){$('danmaku-toggle').textContent=enabled?'彈幕：開':'彈幕：關';$('danmaku-toggle').setAttribute('aria-pressed',String(enabled));}
   $('danmaku-toggle').addEventListener('click',()=>{enabled=!enabled;toggleUI();if(enabled){loadedStatus();ensureSegments();kick();}else{cancelAnimationFrame(raf);raf=0;clearCanvas();status('彈幕已關閉');}});
   $('danmaku-density').addEventListener('change',()=>{density=Number($('danmaku-density').value);try{localStorage.setItem('anime1-danmaku-density',String(density));}catch{}layoutKey='';draw();});
-  $('danmaku-config').addEventListener('click',()=>{searchEpoch++;$('danmaku-settings').hidden=!$('danmaku-settings').hidden;$('danmaku-config').setAttribute('aria-expanded',String(!$('danmaku-settings').hidden));if(!$('danmaku-settings').hidden)$('danmaku-query').focus();});
+  $('danmaku-config').addEventListener('click',()=>{$('danmaku-settings').hidden=!$('danmaku-settings').hidden;$('danmaku-config').setAttribute('aria-expanded',String(!$('danmaku-settings').hidden));if(!$('danmaku-settings').hidden)$('danmaku-query').focus();});
   $('danmaku-search-form').addEventListener('submit',e=>{e.preventDefault();void search();});
-  $('danmaku-offset-form').addEventListener('submit',e=>{e.preventDefault();const offset=Number($('danmaku-offset').value);if(Number.isFinite(offset)&&Math.abs(offset)<=300)void saveSource(setting?.source||null,offset);});
+  $('danmaku-offset-form').addEventListener('submit',e=>{e.preventDefault();const offset=Number($('danmaku-offset').value);if(Number.isFinite(offset)&&Math.abs(offset)<=300)void saveSource(null,0,sources().map(x=>x.provider===$('danmaku-offset-source').value?{...x,offset}:x));});
   $('danmaku-clear').addEventListener('click',()=>void saveSource(null,0));
-  $('danmaku-retry').addEventListener('click',async()=>{failed.clear();$('danmaku-retry').hidden=true;if(setting?.source)ensureSegments();else{const e=epoch;await refreshSetting();if(e===epoch&&setting&&!setting.source&&!setting.revision)void autoMatch(episode,e,searchEpoch);}});
+  for(const provider of ['all','bahamut','bilibili','dandanplay'])$('danmaku-filter-'+provider).addEventListener('click',()=>{filter=provider;filterUI();layoutKey='';loadedStatus();draw();});
+  $('danmaku-offset-source').addEventListener('change',()=>{$('danmaku-offset').value=String(sources().find(x=>x.provider===$('danmaku-offset-source').value)?.offset||0);});
+  $('danmaku-retry').addEventListener('click',async()=>{failed.clear();matchErrors=[];$('danmaku-retry').hidden=true;const e=epoch;await refreshSetting();if(e!==epoch)return;ensureSegments();if(setting)void autoMatch(episode,e,searchEpoch);});
   video.addEventListener('playing',()=>{ensureSegments();kick();});
   video.addEventListener('timeupdate',()=>{ensureSegments();if(!raf)draw();});
   for(const event of ['pause','seeked','loadedmetadata','ratechange'])video.addEventListener(event,()=>{ensureSegments();kick();});

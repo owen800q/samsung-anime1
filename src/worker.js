@@ -1,4 +1,4 @@
-import { searchDanmaku, resolveDanmaku, getDanmaku } from './danmaku-server.js';
+import { searchDanmaku, resolveDanmaku, getDanmaku, dandanConfigured, matchDandanplay } from './danmaku-server.js';
 import { resolveEpisode, streamMedia, searchEpisodes, listEpisodes, errorResponse, PlaybackError } from './adapter.js';
 import { browseCatalogue, catalogueMetadata, catalogueSeries, catalogueCover, catalogueItem, catalogueComments } from './catalog.js';
 import { historyRoute } from './sync-server.js';
@@ -28,9 +28,11 @@ export default {
       const origin = request.headers.get('origin');
       if ((origin && origin !== url.origin) || request.headers.get('sec-fetch-site') === 'cross-site') throw new PlaybackError('請從播放器網頁開啟影片。', 403);
       if (url.pathname === '/api/history' || url.pathname === '/api/danmaku/settings') return await historyRoute(request,env);
-      if (request.method === 'GET' && url.pathname === '/api/danmaku/search') return Response.json(await searchDanmaku(url.searchParams.get('q')),{headers:{'Cache-Control':'no-store'}});
-      if (request.method === 'GET' && url.pathname === '/api/danmaku/resolve') return Response.json(await resolveDanmaku(url.searchParams.get('url')),{headers:{'Cache-Control':'no-store'}});
-      if (request.method === 'GET' && url.pathname === '/api/danmaku/comments') return Response.json(await getDanmaku(url.searchParams.get('provider'),url.searchParams.get('id'),Number(url.searchParams.get('segment')||1)),{headers:{'Cache-Control':'no-store'}});
+      if (request.method === 'GET' && url.pathname === '/api/danmaku/providers') return Response.json({dandanplay:dandanConfigured(env)},{headers:{'Cache-Control':'no-store'}});
+      if (request.method === 'GET' && url.pathname === '/api/danmaku/match') return Response.json(await matchDandanplay(url.searchParams.get('bgmId'),url.searchParams.get('episode'),env),{headers:{'Cache-Control':'no-store'}});
+      if (request.method === 'GET' && url.pathname === '/api/danmaku/search') return Response.json(await searchDanmaku(url.searchParams.get('q'),url.searchParams.get('provider')||'bahamut',env),{headers:{'Cache-Control':'no-store'}});
+      if (request.method === 'GET' && url.pathname === '/api/danmaku/resolve') return Response.json(await resolveDanmaku(url.searchParams.get('url'),env),{headers:{'Cache-Control':'no-store'}});
+      if (request.method === 'GET' && url.pathname === '/api/danmaku/comments') return Response.json(await getDanmaku(url.searchParams.get('provider'),url.searchParams.get('id'),Number(url.searchParams.get('segment')||1),env),{headers:{'Cache-Control':'no-store'}});
       if (url.pathname === '/api/health' && request.method === 'GET') return Response.json({ service: 'samsung-anime1', authentication: 'none', version: 'catalog-1' }, { headers: { 'Cache-Control': 'no-store' } });
       if (request.method === 'GET' && url.pathname === '/api/catalog') return Response.json(await browseCatalogue(url.searchParams),{headers:{'Cache-Control':'no-store'}});
       if (request.method === 'GET' && url.pathname === '/api/catalog-item') return Response.json(await catalogueItem(url.searchParams.get('id')),{headers:{'Cache-Control':'no-store'}});

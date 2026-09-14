@@ -3,6 +3,7 @@
   "main": "./dist/_worker.js",
   "compatibility_date": "2026-09-10",
   "workers_dev": true,
+  "vars": { "DANDANPLAY_APP_ID": "dfgi5f83qb" },
   "durable_objects": { "bindings": [{ "name": "WATCH_HISTORY", "class_name": "WatchHistory" }] },
   "migrations": [{ "tag": "watch-history-v1", "new_sqlite_classes": ["WatchHistory"] }],
   "build": { "command": "node scripts/build.mjs" },

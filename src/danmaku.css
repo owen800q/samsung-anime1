@@ -9,3 +9,6 @@
 .danmaku-results button{text-align:left;justify-content:flex-start;overflow-wrap:anywhere}
 #danmaku-offset{width:100px}.danmaku-panel .field-help{overflow-wrap:anywhere}
 @media(max-width:560px){.danmaku-search{flex-direction:column}.danmaku-toolbar{gap:10px}.danmaku-panel{padding:12px}.danmaku-results{grid-template-columns:1fr}}
+
+.danmaku-filters{margin-top:12px}.danmaku-filters [aria-pressed="true"]{background:var(--primary);color:var(--background);border-color:var(--primary)}
+#danmaku-source-list{display:grid;gap:8px}
