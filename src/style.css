@@ -28,7 +28,8 @@
 #screen .dplayer-setting,#screen .dplayer-menu{z-index:5}
 #screen .screen-empty{z-index:6}
 #screen .dplayer-controller .dplayer-icons .dplayer-icon{width:44px;height:44px}
-#screen:focus-within .dplayer-controller{opacity:1;transform:translateY(0)}
+/* Only focus inside the control bar itself pins it; focus on the video or exit button lets DPlayer auto-hide. */
+#screen .dplayer-controller:focus-within{opacity:1;transform:translateY(0)}
 #screen .player-exit{position:absolute;top:14px;right:14px;z-index:10;border:1px solid #98f2d1;border-radius:9px;padding:10px 16px;background:#131d2ae6;color:#f4f7fb;font-size:16px;min-height:44px}
 #screen.dplayer-fulled{position:fixed;inset:0;width:100%;height:100%;min-width:0;max-width:none;margin:0;border:0;border-radius:0;aspect-ratio:auto;z-index:10000}
 #screen:fullscreen{width:100%;height:100%;min-width:0;max-width:none;margin:0;border:0;border-radius:0;aspect-ratio:auto}
