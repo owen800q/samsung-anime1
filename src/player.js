@@ -66,7 +66,9 @@
       e.preventDefault();e.stopImmediatePropagation();void leave();
     }
   },true);
-  screen.addEventListener('focusin',()=>player.controller.show());
+  // Reveal the controls briefly on remote focus or seeking; DPlayer hides them again while playing.
+  const reveal=()=>player.controller.setAutoHide();
+  screen.addEventListener('focusin',reveal);video.addEventListener('seeking',reveal);
   const labels={'.dplayer-play-icon':'播放／暫停','.dplayer-mobile-play':'播放／暫停',
     '.dplayer-volume-icon':'靜音／開啟聲音','.dplayer-setting-icon':'播放設定',
     '.dplayer-full-icon':'播放器全螢幕','.dplayer-full-in-icon':'網頁全螢幕'};

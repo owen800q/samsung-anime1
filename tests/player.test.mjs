@@ -18,7 +18,7 @@ function setup(request){
   nodes.screen.requestFullscreen=request&&function(){return request(document,this);};
   const window=new EventTarget();window.scrollX=3;window.scrollY=120;window.scrollTo=(x,y)=>{window.restored={x,y};};
   let player,draws=0;window.addEventListener('resize',()=>draws++);
-  function DPlayer(opts){player=this;this.video=new Element();opts.container.append(this.video);this.fullScreen={};this.resize=()=>{};this.controller={show(){}};}
+  function DPlayer(opts){player=this;this.video=new Element();opts.container.append(this.video);this.fullScreen={};this.resize=()=>{};this.controller={shown:0,armed:0,show(){this.shown++;},setAutoHide(){this.armed++;}};}
   vm.runInNewContext(code,{window,document,DPlayer,Event});
   return {nodes,document,window,player,draws:()=>draws,exit:nodes.screen.children.at(-1)};
 }
@@ -52,6 +52,13 @@ test('explicit web fullscreen and Escape preserve paused overlay redraw',async()
 test('late rejected fullscreen request cannot reopen player after navigation',async()=>{
   let reject;const s=setup(()=>new Promise((_,r)=>{reject=r}));const pending=s.player.fullScreen.request();
   await s.window.TVPlayer.leave();reject(new Error('denied'));await pending;assert.equal(s.window.TVPlayer.isExpanded(),false);
+});
+test('fullscreen focus and seeking reveal controls with auto-hide instead of pinning them',async()=>{
+  const s=setup(async(doc,el)=>{doc.fullscreenElement=el;});
+  await s.player.fullScreen.request();
+  s.nodes.screen.dispatchEvent(new Event('focusin'));assert.equal(s.player.controller.armed,1);
+  s.player.video.dispatchEvent(new Event('seeking'));assert.equal(s.player.controller.armed,2);
+  assert.equal(s.player.controller.shown,0);
 });
 test('vendored DPlayer styles match explicit CSP hashes without allowing arbitrary inline styles',()=>{
   const styles=[];const head={appendChild:x=>styles.push(x)};
