@@ -3,7 +3,7 @@
   const $=id=>document.getElementById(id);
   const S=window.TVState;
   const formats={tv:'TV 動畫',movie:'劇場版',web:'網絡動畫',ova:'OVA / 特別篇',unknown:'動畫'};
-  let generation=0,request=null,nextPage=null,state='',activePreset='all',selected=null,returnFocus=null;
+  let generation=0,request=null,nextPage=null,state='',sort='',activePreset='all',selected=null,returnFocus=null;
   const items=new Map(),details=new Map(),cards=new Map();
   let commentsRequest=null,commentsGeneration=0,commentsPage=1,commentsNext=null;
   function resetComments(){
@@ -45,16 +45,16 @@
     }finally{if(id===commentsGeneration)$('detail-comments').setAttribute('aria-busy','false');}
   }
   async function json(url,signal){const r=await fetch(url,{signal});if(!r.headers.get('content-type')?.includes('application/json'))throw new Error('動畫資料暫時無法讀取。');const data=await r.json();if(!r.ok)throw new Error(data.error||'動畫資料暫時無法讀取。');return data;}
-  function filters(page){const p=new URLSearchParams({page,state});for(const key of ['q','year','season','format','genre']){const value=$('catalog-'+key).value;if(value)p.set(key,value);}return p;}
+  function filters(page){const p=new URLSearchParams({page,state,sort});for(const key of ['q','year','season','format','genre']){const value=$('catalog-'+key).value;if(value)p.set(key,value);}return p;}
   function options(id,values){const el=$(id),value=el.value;const first=el.firstElementChild.cloneNode(true);el.replaceChildren(first);values.forEach(v=>{const option=document.createElement('option');option.value=v;option.textContent=v;el.append(option);});el.value=value;}
   function applyDetail(item,data){
     if(selected!==item.id)return;
     $('detail-summary').textContent=data?.summary||'暫未有簡介，仍然可以從下方選集播放。';
-    $('detail-rating').textContent=data?.score?'Bangumi '+Number(data.score).toFixed(1)+' / 10 · '+data.ratingCount+' 人評分':'';
+    $('detail-rating').textContent=data?.score?'Bangumi '+Number(data.score).toFixed(1)+' / 10 · '+data.ratingCount+' 人評分'+(data.rank?' · 排名 #'+data.rank:''):'';
     $('detail-tags').replaceChildren();(data?.tags||[]).forEach(tag=>{const chip=document.createElement('span');chip.textContent=tag;$('detail-tags').append(chip);});
     $('detail-bangumi').hidden=!data?.bangumiUrl;if(data?.bangumiUrl)$('detail-bangumi').href=data.bangumiUrl;
   }
-  function updateCard(item,data){details.set(item.id,data);const card=cards.get(item.id);if(card)card.querySelector('.card-score').textContent=data?.score?'★ '+Number(data.score).toFixed(1):'';applyDetail(item,data);}
+  function updateCard(item,data){details.set(item.id,data);const card=cards.get(item.id);if(card)card.querySelector('.card-score').textContent=data?.score?'★ '+Number(data.score).toFixed(1)+(data.rank?' · #'+data.rank:''):'';applyDetail(item,data);}
   function openAnime(item,updateRoute=true){
     if(updateRoute){const p=S.route();p.set('view','anime');p.set('id',item.id);p.delete('episode');S.navigate(p);}
 
@@ -108,17 +108,17 @@
       options('catalog-year',data.years);options('catalog-genre',data.genres);
       const added=[];data.items.forEach(item=>{if(items.has(item.id))return;$('catalog-grid').append(card(item));added.push(item);if(item.metadata)updateCard(item,item.metadata);else if(details.has(item.id))updateCard(item,details.get(item.id));});
       nextPage=data.nextPage;$('catalog-more').hidden=!nextPage;
-      $('catalog-status').textContent=items.size?(data.total==null?'已找到 '+items.size+' 套 · 依 Bangumi 熱度排序':'共 '+data.total+' 套 · 已顯示 '+items.size+' 套'):(nextPage?'這頁暫未配對到片源，可以按「更多動畫」繼續搵。':'未找到符合條件的動畫，試下其他分類。');
-      const notes=[];if(data.stale)notes.push('Anime1 目錄暫時未能更新，現顯示已儲存的目錄。');if(data.genre)notes.push('題材分類只顯示已配對 Bangumi 資料、且 Anime1 有收錄的動畫。');
+      $('catalog-status').textContent=items.size?(data.total==null?'已找到 '+items.size+' 套 · 依 Bangumi '+(data.sort==='rank'?'排名':'熱度')+'排序':'共 '+data.total+' 套 · 已顯示 '+items.size+' 套'):(nextPage?'這頁暫未配對到片源，可以按「更多動畫」繼續搵。':'未找到符合條件的動畫，試下其他分類。');
+      const notes=[];if(data.stale)notes.push('Anime1 目錄暫時未能更新，現顯示已儲存的目錄。');if(data.total==null)notes.push((data.genre?'題材分類':'排行榜')+'只顯示已配對 Bangumi 資料、且 Anime1 有收錄的動畫。');
       $('catalog-notice').textContent=notes.join(' ');$('catalog-notice').hidden=!notes.length;
       void hydrate(added,id,signal);
     }catch(e){if(signal.aborted||id!==generation)return;$('catalog-status').textContent='未能載入目錄';$('catalog-error').textContent=e.message;$('catalog-error').hidden=false;$('catalog-retry').hidden=false;nextPage=page;}
   }
   function pressed(){document.querySelectorAll('[data-preset]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.preset===activePreset)));}
-  function reset(){for(const key of ['q','year','season','format','genre'])$('catalog-'+key).value='';state='';activePreset='all';pressed();}
-  document.querySelectorAll('[data-preset]').forEach(button=>button.addEventListener('click',()=>{reset();activePreset=button.dataset.preset;if(activePreset==='airing'||activePreset==='complete')state=activePreset;if(activePreset==='movie')$('catalog-format').value='movie';if(activePreset==='season'){const now=new Date();const year=String(now.getFullYear());if(![...$('catalog-year').options].some(o=>o.value===year)){const o=document.createElement('option');o.value=year;o.textContent=year;$('catalog-year').append(o);}$('catalog-year').value=year;$('catalog-season').value=['冬','春','夏','秋'][Math.floor(now.getMonth()/3)];}pressed();void load();}));
+  function reset(){for(const key of ['q','year','season','format','genre'])$('catalog-'+key).value='';state='';sort='';activePreset='all';pressed();}
+  document.querySelectorAll('[data-preset]').forEach(button=>button.addEventListener('click',()=>{reset();activePreset=button.dataset.preset;if(activePreset==='airing'||activePreset==='complete')state=activePreset;if(activePreset==='ranking')sort='rank';if(activePreset==='movie')$('catalog-format').value='movie';if(activePreset==='season'){const now=new Date();const year=String(now.getFullYear());if(![...$('catalog-year').options].some(o=>o.value===year)){const o=document.createElement('option');o.value=year;o.textContent=year;$('catalog-year').append(o);}$('catalog-year').value=year;$('catalog-season').value=['冬','春','夏','秋'][Math.floor(now.getMonth()/3)];}pressed();void load();}));
   $('catalog-form').addEventListener('submit',e=>{e.preventDefault();void load();});
-  for(const key of ['year','season','format','genre'])$('catalog-'+key).addEventListener('change',()=>{activePreset=state||'all';pressed();void load();});
+  for(const key of ['year','season','format','genre'])$('catalog-'+key).addEventListener('change',()=>{activePreset=sort==='rank'?'ranking':state||'all';pressed();void load();});
   $('catalog-clear').addEventListener('click',()=>{reset();void load();});$('catalog-retry').addEventListener('click',()=>void load(nextPage||1));$('catalog-more').addEventListener('click',()=>{if(nextPage)void load(nextPage);});
   $('detail-cover').addEventListener('error',()=>{$('detail-cover').hidden=true;});
   $('comments-prev').addEventListener('click',()=>{if(commentsPage>1)void loadComments(commentsPage-1);});
@@ -151,7 +151,7 @@
     if(view==='watch')return;
     document.dispatchEvent(new CustomEvent('anime1:home'));
     $('watch-player').hidden=true;$('home-detail').hidden=true;$('home-browser').hidden=false;$('home-back').hidden=true;selected=null;
-    state=p.get('state')||'';activePreset=p.get('preset')||'all';pressed();
+    state=p.get('state')||'';sort=p.get('sort')||'';activePreset=p.get('preset')||'all';pressed();
     for(const key of ['q','year','season','format','genre']){
       const el=$('catalog-'+key),value=p.get(key)||'';
       if(el.tagName==='SELECT'&&value&&![...el.options].some(o=>o.value===value)){const o=document.createElement('option');o.value=value;o.textContent=value;el.append(o);}el.value=value;

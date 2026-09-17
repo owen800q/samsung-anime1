@@ -54,3 +54,43 @@ test('source outage provides an explicitly stale snapshot and metadata limits ar
   await assert.rejects(api.catalogueMetadata('1,2,3,4,5,6,7,8,9'),e=>e.status===400);
   await assert.rejects(api.catalogueCover('https://evil.test'),e=>e.status===400);
 });
+
+test('ranking browses Bangumi by rank within the catalogue years, scans ahead for Anime1 titles and reports rank',async t=>{
+  const api=await fresh();const source=seeds.find(x=>x.bgmId);const bodies=[],offsets=[];
+  const filler=()=>Array.from({length:20},(_,i)=>({id:90000000+i,type:2,name:'沒有片源 '+i,rating:{rank:1+i,total:5,score:9}}));
+  t.mock.method(globalThis,'fetch',async(url,init)=>{
+    if(url==='https://anime1.me/animelist.json')return Response.json(rows());
+    assert.match(url,/^https:\/\/api\.bgm\.tv\/v0\/search\/subjects\?limit=20&offset=\d+$/);
+    const offset=Number(new URL(url).searchParams.get('offset'));offsets.push(offset);bodies.push(JSON.parse(init.body));
+    const data=offset>=100?[]:filler();if(offset===40)data.push({id:source.bgmId,type:2,name:'作品',rating:{rank:7,total:100,score:8.4}});
+    return Response.json({total:1000,data});
+  });
+  const result=await api.browseCatalogue(new URLSearchParams({sort:'rank'}));
+  assert.deepEqual(result.items.map(x=>x.id),[source.id]);
+  assert.equal(result.items[0].metadata.rank,7);assert.equal(result.items[0].metadata.score,8.4);
+  assert.equal(result.sort,'rank');assert.equal(result.genre,false);assert.equal(result.total,null);
+  assert.deepEqual(offsets,[0,20,40,60,80]);assert.equal(result.nextPage,6);
+  const oldest=[...new Set(seeds.map(x=>x.year))].sort()[0];
+  const expected={keyword:'',sort:'rank',filter:{type:[2],nsfw:false,rank:['>0'],air_date:['>='+oldest+'-01-01']}};
+  bodies.forEach(body=>assert.deepEqual(body,expected));
+  const tail=await api.browseCatalogue(new URLSearchParams({sort:'rank',page:'6'}));
+  assert.deepEqual(tail.items,[]);assert.equal(tail.nextPage,null);
+  const yearly=await api.browseCatalogue(new URLSearchParams({sort:'rank',year:source.year}));
+  assert.deepEqual(yearly.items.map(x=>x.id),[source.id]);
+  assert.deepEqual(bodies.at(-1).filter.air_date,['>='+source.year+'-01-01','<'+(Number(source.year)+1)+'-01-01']);
+  await assert.rejects(api.browseCatalogue(new URLSearchParams({sort:'score'})),e=>e.status===400);
+});
+
+test('ranking stops scanning once a page has enough matches and paginates in Bangumi pages',async t=>{
+  const api=await fresh();const many=CATALOG_SEED.entries.filter(x=>x.bgmId).slice(0,30);const offsets=[];
+  t.mock.method(globalThis,'fetch',async url=>{
+    if(url==='https://anime1.me/animelist.json')return Response.json(many.map(x=>[x.id,x.title,x.episodes,x.year,x.season,'']));
+    const offset=Number(new URL(url).searchParams.get('offset'));offsets.push(offset);
+    return Response.json({total:30,data:many.slice(offset,offset+20).map((x,i)=>({id:x.bgmId,type:2,name:x.title,rating:{rank:offset+i+1,total:50,score:8}}))});
+  });
+  const first=await api.browseCatalogue(new URLSearchParams({sort:'rank'}));
+  assert.deepEqual(first.items.map(x=>x.id),many.slice(0,20).map(x=>x.id));assert.deepEqual(first.items.map(x=>x.metadata.rank),Array.from({length:20},(_,i)=>i+1));
+  assert.deepEqual(offsets,[0]);assert.equal(first.nextPage,2);
+  const second=await api.browseCatalogue(new URLSearchParams({sort:'rank',page:'2'}));
+  assert.deepEqual(second.items.map(x=>x.id),many.slice(20).map(x=>x.id));assert.equal(second.nextPage,null);assert.deepEqual(offsets,[0,20]);
+});

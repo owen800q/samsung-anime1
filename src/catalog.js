@@ -56,7 +56,7 @@ function metadata(subject, sourceId) {
   const image=subject.images?.common||subject.images?.medium||subject.images?.large;
   let safeImage=null;
   try {const u=new URL(image);if(u.protocol==='https:'&&u.hostname==='lain.bgm.tv'&&!u.port&&!u.username&&!u.password&&/^\/(?:r\/\d+\/)?pic\/cover\/[a-z]\/[a-zA-Z0-9_./-]+\.(?:jpg|png|webp)$/.test(u.pathname)&&!u.search&&!u.hash)safeImage=u.href;}catch{}
-  return {id:sourceId,bgmId:subject.id,name:subject.name_cn||subject.name,summary:plainText(subject.summary||''),score:subject.rating?.total>0?subject.rating.score:null,ratingCount:subject.rating?.total||0,tags:(subject.tags||[]).slice(0,8).map(t=>plainText(t.name)),cover:safeImage?'/api/cover?id='+sourceId:null,image:safeImage,bangumiUrl:'https://bgm.tv/subject/'+subject.id};
+  return {id:sourceId,bgmId:subject.id,name:subject.name_cn||subject.name,summary:plainText(subject.summary||''),score:subject.rating?.total>0?subject.rating.score:null,ratingCount:subject.rating?.total||0,rank:Number.isInteger(subject.rating?.rank)&&subject.rating.rank>0?subject.rating.rank:null,tags:(subject.tags||[]).slice(0,8).map(t=>plainText(t.name)),cover:safeImage?'/api/cover?id='+sourceId:null,image:safeImage,bangumiUrl:'https://bgm.tv/subject/'+subject.id};
 }
 async function subjectMetadata(item) {
   item = await resolveCatalogueTitle(item);
@@ -65,19 +65,34 @@ async function subjectMetadata(item) {
 }
 export async function browseCatalogue(params) {
   const {items,stale}=await catalogueIndex();
-  const q=(params.get('q')||'').trim();const year=params.get('year')||'';const season=params.get('season')||'';const format=params.get('format')||'';const state=params.get('state')||'';const genre=params.get('genre')||'';
+  const q=(params.get('q')||'').trim();const year=params.get('year')||'';const season=params.get('season')||'';const format=params.get('format')||'';const state=params.get('state')||'';const genre=params.get('genre')||'';const sort=params.get('sort')||'';
   const page=Number(params.get('page')||1);
-  if(q.length>80||!Number.isInteger(page)||page<1||page>200||year&&!/^\d{4}$/.test(year)||season&&!['冬','春','夏','秋'].includes(season)||format&&!['tv','movie','ova','web','unknown'].includes(format)||state&&!['airing','complete'].includes(state)||genre&&!GENRES.includes(genre))throw new PlaybackError('目錄篩選條件無效。',400);
+  if(q.length>80||!Number.isInteger(page)||page<1||page>200||year&&!/^\d{4}$/.test(year)||season&&!['冬','春','夏','秋'].includes(season)||format&&!['tv','movie','ova','web','unknown'].includes(format)||state&&!['airing','complete'].includes(state)||genre&&!GENRES.includes(genre)||sort&&!['heat','rank'].includes(sort))throw new PlaybackError('目錄篩選條件無效。',400);
   const filtered=items.filter(x=>(!q||[x.title,...x.aliases].some(t=>normalTitle(t).includes(normalTitle(q))))&&(!year||x.year===year)&&(!season||x.season===season)&&(!format||x.format===format)&&(!state||(state==='airing'?x.episodes.includes('連載中'):!x.episodes.includes('連載中'))));
   const years=[...new Set(items.map(x=>x.year).filter(x=>/^\d{4}$/.test(x)))].sort().reverse();
-  if(genre){
-    const result=await catalogueJSON('https://api.bgm.tv/v0/search/subjects?limit=50&offset='+((page-1)*50),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({keyword:'',sort:'heat',filter:{type:[2],tag:[genreTags[GENRES.indexOf(genre)]],nsfw:false}})},3600);
-    if(!Array.isArray(result.data))throw new PlaybackError('題材分類暫時無法讀取。');
+  // Genre and ranking views walk Bangumi's search index (heat or rank order) and keep only titles Anime1 carries.
+  if(genre||sort){
+    const order=sort||'heat';
+    const filter={type:[2],nsfw:false};
+    if(genre)filter.tag=[genreTags[GENRES.indexOf(genre)]];
+    if(order==='rank')filter.rank=['>0'];
+    // Narrow Bangumi to the years the source catalogue covers so ranked pages are not filled with titles Anime1 lacks.
+    const floor=years[years.length-1];
+    if(year)filter.air_date=['>='+year+'-01-01','<'+(Number(year)+1)+'-01-01'];else if(floor)filter.air_date=['>='+floor+'-01-01'];
     const byBgm=new Map();for(const item of filtered){if(!byBgm.has(item.bgmId))byBgm.set(item.bgmId,[]);byBgm.get(item.bgmId).push(item);}
-    const matches=result.data.flatMap(subject=>(byBgm.get(subject.id)||[]).map(item=>{const detail=metadata(subject,item.id);if(detail)delete detail.image;return {...publicItem(item),metadata:detail};}));
-    return {items:matches,years,genres:GENRES,total:null,nextPage:result.data.length===50&&(page*50<result.total||result.total==null)?page+1:null,stale,genre:true};
+    // Bangumi serves at most 20 rows per search page and only a fraction of them have a source here,
+    // so each catalogue page scans ahead (bounded) until it has a screenful; `page` stays a Bangumi page number.
+    const size=20,matches=[];let next=page,more=true;
+    for(let scanned=0;scanned<5&&more&&matches.length<12;scanned++,next++){
+      const offset=(next-1)*size;
+      const result=await catalogueJSON('https://api.bgm.tv/v0/search/subjects?limit='+size+'&offset='+offset,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({keyword:'',sort:order,filter})},3600);
+      if(!Array.isArray(result.data))throw new PlaybackError(genre?'題材分類暫時無法讀取。':'排行榜暫時無法讀取。');
+      matches.push(...result.data.flatMap(subject=>(byBgm.get(subject.id)||[]).map(item=>{const detail=metadata(subject,item.id);if(detail)delete detail.image;return {...publicItem(item),metadata:detail};})));
+      more=result.data.length>0&&next<200&&(result.total==null||offset+result.data.length<result.total);
+    }
+    return {items:matches,years,genres:GENRES,total:null,nextPage:more?next:null,stale,genre:Boolean(genre),sort:order};
   }
-  return {items:filtered.slice((page-1)*24,page*24).map(publicItem),years,genres:GENRES,total:filtered.length,nextPage:page*24<filtered.length?page+1:null,stale,genre:false};
+  return {items:filtered.slice((page-1)*24,page*24).map(publicItem),years,genres:GENRES,total:filtered.length,nextPage:page*24<filtered.length?page+1:null,stale,genre:false,sort:null};
 }
 export async function catalogueMetadata(ids) {
   if(!/^\d+(?:,\d+){0,7}$/.test(ids||''))throw new PlaybackError('動畫資料編號無效。',400);
