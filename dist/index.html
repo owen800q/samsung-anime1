@@ -4,11 +4,11 @@
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="適合 Samsung 電視的獨立 Anime1 播放器，無需登入。">
   <meta name="robots" content="noindex,nofollow"><meta name="theme-color" content="#0b1019">
-  <title>Anime1 TV 動畫目錄</title><link rel="icon" href="/favicon.svg"><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/home.css"><link rel="stylesheet" href="/danmaku.css">
+  <title>Anime1 TV 動畫目錄</title><link rel="icon" type="image/png" href="/favicon.png"><link rel="apple-touch-icon" href="/apple-touch-icon.png"><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/home.css"><link rel="stylesheet" href="/danmaku.css">
   <script src="/state.js" defer></script><script src="/vendor/dplayer-1.27.1.min.js" defer></script><script src="/player.js" defer></script><script src="/danmaku.js" defer></script><script src="/app.js" defer></script><script src="/home.js" defer></script>
 </head>
 <body><main class="shell">
-  <header class="masthead"><a href="/" class="brand"><span class="brand-mark" aria-hidden="true">▶</span><span>Anime1 <strong>TV</strong></span></a><button id="home-back" class="tv-button outline" hidden>← 動畫目錄</button><button id="sync-toggle" class="tv-button outline">裝置同步</button></header>
+  <header class="masthead"><a href="/" class="brand"><img class="brand-logo" src="/logo.png" alt="Anime1 TV" width="512" height="512"></a><button id="home-back" class="tv-button outline" hidden>← 動畫目錄</button><button id="sync-toggle" class="tv-button outline">裝置同步</button></header>
   <section id="sync-panel" class="sync-panel" aria-label="跨裝置同步" hidden><h2>共用觀看進度</h2><p>在手機、電視或電腦輸入相同同步碼，即可共用資料庫中的觀看紀錄。請妥善保管同步碼。</p><label for="sync-code">此裝置的同步碼</label><div class="sync-fields"><input id="sync-code" class="tv-input" readonly><button id="sync-copy" class="tv-button secondary">複製</button></div><form id="sync-form"><label for="sync-input">連接另一裝置的紀錄</label><div class="sync-fields"><input id="sync-input" class="tv-input" autocomplete="off" maxlength="64" placeholder="輸入另一裝置的同步碼" required><button class="tv-button" type="submit">連接</button></div></form><p id="sync-status" role="status">正在連接雲端紀錄…</p></section>
   <section class="workspace">
     <div class="watch-column">
