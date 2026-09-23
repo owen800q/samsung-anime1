@@ -18,6 +18,18 @@
   // Bahamut's series/search title can include the currently selected episode.
   // Strip only numeric episode suffixes, not season numbers or special labels.
   const seriesName=s=>normal(String(s).normalize('NFKC').replace(/\s*\[\d+(?:\.\d+)?\]\s*$/,''));
+  // Mirrors pickEpisodes in title-match.js: sources that keep counting across seasons (38, 39, …)
+  // map catalogue episode n to the n-th of a gap-free run, only when no label matches directly.
+  function pickEpisodes(episodes,n){
+    // Prefer the main release when a source repeats episode numbers in other groups (dubs).
+    if(episodes.some(x=>x.group==='0'))episodes=episodes.filter(x=>x.group===undefined||x.group==='0');
+    const numbered=episodes.filter(x=>/^\d+(?:\.\d+)?$/.test(x.label));
+    const exact=numbered.filter(x=>Number(x.label)===Number(n));
+    if(exact.length||!Number.isInteger(Number(n))||Number(n)<1)return exact;
+    const whole=numbered.filter(x=>Number.isInteger(Number(x.label))).sort((a,b)=>a.label-b.label);
+    const consecutive=whole.length>0&&Number(whole[0].label)>1&&whole.every((x,i)=>Number(x.label)===Number(whole[0].label)+i);
+    return consecutive&&whole[Number(n)-1]?[whole[Number(n)-1]]:[];
+  }
   async function json(path,signal,timeout=15000){const r=await fetch(path,{signal:AbortSignal.any([signal,AbortSignal.timeout(timeout)])});const d=await r.json();if(!r.ok)throw new Error(d.error||'彈幕暫時無法讀取。');return d;}
   function settingsUI(){
     const list=sources(),src=list[0];
@@ -159,7 +171,7 @@
         const d=await json('/api/danmaku/resolve?url='+encodeURIComponent(exact[0].url),signal);
         const year=d.year||exact[0].year;
         if(![d.title,...(d.aliases||[])].some(x=>names.includes(seriesName(x)))||!/^\d{4}$/.test(year)||!String(item.year).split('/').includes(year))return noMatch();
-        const eps=d.episodes.filter(x=>/^\d+(?:\.\d+)?$/.test(x.label)&&Number(x.label)===Number(n));
+        const eps=pickEpisodes(d.episodes,n);
         return eps.length===1?eps[0]:noMatch();
       };
       // Save each provider as soon as it pairs: a fast Bahamut match must not wait for a slow 彈彈play one.

@@ -34,6 +34,19 @@ export function titleQueries(title) {
   const parts=[cjk&&matchTitleKey(cjk).length>=3?cjk:'',latin&&matchTitleKey(latin).length>=4?latin:''];
   return [...new Set([title, root, unseasoned, ...parts].filter(x=>matchTitleKey(x).length>=2))].slice(0,5).map(x => x.slice(0,100));
 }
+// Episodes whose label equals the catalogue number. Some sources keep counting across seasons
+// (動畫瘋 SPY×FAMILY Season 3 is 38, 39, …): when nothing matches and the whole-number labels
+// run consecutively from k>1 without gaps or repeats, catalogue episode n is the n-th of them.
+export function pickEpisodes(episodes,n){
+  // Prefer the main release when a source repeats episode numbers in other groups (dubs).
+  if(episodes.some(x=>x.group==='0'))episodes=episodes.filter(x=>x.group===undefined||x.group==='0');
+  const numbered=episodes.filter(x=>/^\d+(?:\.\d+)?$/.test(x.label));
+  const exact=numbered.filter(x=>Number(x.label)===Number(n));
+  if(exact.length||!Number.isInteger(Number(n))||Number(n)<1)return exact;
+  const whole=numbered.filter(x=>Number.isInteger(Number(x.label))).sort((a,b)=>a.label-b.label);
+  const consecutive=whole.length>0&&Number(whole[0].label)>1&&whole.every((x,i)=>Number(x.label)===Number(whole[0].label)+i);
+  return consecutive&&whole[Number(n)-1]?[whole[Number(n)-1]]:[];
+}
 // Character-bigram Dice similarity, used only to rank candidates before the LLM sees them.
 export function titleSimilarity(a,b){
   const grams=s=>{const k=matchTitleKey(s),out=new Map();for(let i=0;i<k.length-1;i++){const g=k.slice(i,i+2);out.set(g,(out.get(g)||0)+1);}return out;};

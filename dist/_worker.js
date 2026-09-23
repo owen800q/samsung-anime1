@@ -419,6 +419,19 @@ function titleQueries(title) {
   const parts=[cjk&&matchTitleKey(cjk).length>=3?cjk:'',latin&&matchTitleKey(latin).length>=4?latin:''];
   return [...new Set([title, root, unseasoned, ...parts].filter(x=>matchTitleKey(x).length>=2))].slice(0,5).map(x => x.slice(0,100));
 }
+// Episodes whose label equals the catalogue number. Some sources keep counting across seasons
+// (動畫瘋 SPY×FAMILY Season 3 is 38, 39, …): when nothing matches and the whole-number labels
+// run consecutively from k>1 without gaps or repeats, catalogue episode n is the n-th of them.
+function pickEpisodes(episodes,n){
+  // Prefer the main release when a source repeats episode numbers in other groups (dubs).
+  if(episodes.some(x=>x.group==='0'))episodes=episodes.filter(x=>x.group===undefined||x.group==='0');
+  const numbered=episodes.filter(x=>/^\d+(?:\.\d+)?$/.test(x.label));
+  const exact=numbered.filter(x=>Number(x.label)===Number(n));
+  if(exact.length||!Number.isInteger(Number(n))||Number(n)<1)return exact;
+  const whole=numbered.filter(x=>Number.isInteger(Number(x.label))).sort((a,b)=>a.label-b.label);
+  const consecutive=whole.length>0&&Number(whole[0].label)>1&&whole.every((x,i)=>Number(x.label)===Number(whole[0].label)+i);
+  return consecutive&&whole[Number(n)-1]?[whole[Number(n)-1]]:[];
+}
 // Character-bigram Dice similarity, used only to rank candidates before the LLM sees them.
 function titleSimilarity(a,b){
   const grams=s=>{const k=matchTitleKey(s),out=new Map();for(let i=0;i<k.length-1;i++){const g=k.slice(i,i+2);out.set(g,(out.get(g)||0)+1);}return out;};
@@ -751,12 +764,13 @@ async function resolveDanmaku(input,env={}){
       const anime=data.data?.anime;const video=data.data?.video;
       if(!anime||!video)throw new PlaybackError('動畫瘋找不到本集資料。',502);
       const groups=anime.episodes||{};
-      const eps=(Array.isArray(groups)?groups:Object.values(groups).flat()).filter(x=>dmNumber(x.videoSn));
+      // Group "0" is the main release; other groups (e.g. a Chinese dub) repeat the same episode numbers.
+      const eps=(Array.isArray(groups)?groups:Object.entries(groups).flatMap(([group,list])=>Array.isArray(list)?list.map(x=>({...x,group})):[])).filter(x=>dmNumber(x.videoSn));
       const unique=new Map(eps.map(x=>[String(x.videoSn),x]));
       if(!unique.size)throw new PlaybackError('動畫瘋未提供集數列表。',502);
       // The series title includes the requested episode ("… 第四季 [1]"); keep only the series name.
       anime.title=String(anime.title||'').replace(/\s*\[\d+(?:\.\d+)?\]\s*$/,'');
-      return {title:dmTitle(anime.title),year:String(anime.seasonStart||'').slice(0,4),date:monthOf(anime.seasonStart),episodes:[...unique.values()].slice(0,1000).map(x=>({provider:'bahamut',id:String(x.videoSn),label:String(x.episode).slice(0,80),title:dmTitle(anime.title)+' ['+String(x.episode).slice(0,80)+']',url:'https://ani.gamer.com.tw/animeVideo.php?sn='+x.videoSn,selected:String(x.videoSn)===source.id}))};
+      return {title:dmTitle(anime.title),year:String(anime.seasonStart||'').slice(0,4),date:monthOf(anime.seasonStart),episodes:[...unique.values()].slice(0,1000).map(x=>({provider:'bahamut',id:String(x.videoSn),label:String(x.episode).slice(0,80),title:dmTitle(anime.title)+' ['+String(x.episode).slice(0,80)+']',url:'https://ani.gamer.com.tw/animeVideo.php?sn='+x.videoSn,selected:String(x.videoSn)===source.id,...(x.group!==undefined?{group:String(x.group)}:{})}))};
     }
     const endpoint=source.kind==='bv'?'https://api.bilibili.com/x/web-interface/view?bvid='+source.id:'https://api.bilibili.com/pgc/view/web/season?'+(source.kind==='ss'?'season_id=':'ep_id=')+source.id;
     const data=await dmFetch(endpoint);
@@ -869,7 +883,7 @@ async function matchDandanplay(bgmId,episodeNumber,env){
   // An explicit cross-database identity avoids guessing translations or seasons.
   let u;try{u=new URL(d.bangumiUrl);}catch{}
   if(!u||!['bgm.tv','bangumi.tv','chii.in'].includes(u.hostname)||u.pathname!=='/subject/'+bgmId)return {sources:[]};
-  const eps=d.episodes.filter(x=>/^\d+(?:\.\d+)?$/.test(x.label)&&Number(x.label)===Number(episodeNumber));
+  const eps=pickEpisodes(d.episodes,episodeNumber);
   return {sources:eps.length===1?eps:[]};
 }
 function decodeDandanplay(data){
@@ -911,7 +925,7 @@ async function fallbackDanmaku(item,provider,episode,env={}){
   },true,diagnostic);
   if(!identity)return {sources:[]};
   const detail=await resolveDanmaku(identity.url,env);
-  const episodes=detail.episodes.filter(x=>/^\d+(?:\.\d+)?$/.test(x.label)&&Number(x.label)===Number(episode));
+  const episodes=pickEpisodes(detail.episodes,episode);
   titleMatchLog('episode',{...diagnostic,episodeMatches:episodes.length,result:episodes.length===1?'matched':'unmatched',reason:episodes.length===1?'selected':episodes.length?'episode_ambiguous':'episode_missing'});
   return {sources:episodes.length===1?episodes:[]};
 }

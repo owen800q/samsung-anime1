@@ -1,4 +1,4 @@
-import { chooseTitle, titleQueries, titleMatchCached, titleMatchLog, titleSimilarity, monthOf, matchTitleKey, itemYears } from './title-match.js';
+import { chooseTitle, titleQueries, titleMatchCached, titleMatchLog, titleSimilarity, monthOf, matchTitleKey, itemYears, pickEpisodes } from './title-match.js';
 import { PlaybackError } from './adapter.js';
 
 const DM_UA='SamsungAnime1/1.2 (https://github.com/owen800q/Samsung-anime1)';
@@ -71,12 +71,13 @@ export async function resolveDanmaku(input,env={}){
       const anime=data.data?.anime;const video=data.data?.video;
       if(!anime||!video)throw new PlaybackError('動畫瘋找不到本集資料。',502);
       const groups=anime.episodes||{};
-      const eps=(Array.isArray(groups)?groups:Object.values(groups).flat()).filter(x=>dmNumber(x.videoSn));
+      // Group "0" is the main release; other groups (e.g. a Chinese dub) repeat the same episode numbers.
+      const eps=(Array.isArray(groups)?groups:Object.entries(groups).flatMap(([group,list])=>Array.isArray(list)?list.map(x=>({...x,group})):[])).filter(x=>dmNumber(x.videoSn));
       const unique=new Map(eps.map(x=>[String(x.videoSn),x]));
       if(!unique.size)throw new PlaybackError('動畫瘋未提供集數列表。',502);
       // The series title includes the requested episode ("… 第四季 [1]"); keep only the series name.
       anime.title=String(anime.title||'').replace(/\s*\[\d+(?:\.\d+)?\]\s*$/,'');
-      return {title:dmTitle(anime.title),year:String(anime.seasonStart||'').slice(0,4),date:monthOf(anime.seasonStart),episodes:[...unique.values()].slice(0,1000).map(x=>({provider:'bahamut',id:String(x.videoSn),label:String(x.episode).slice(0,80),title:dmTitle(anime.title)+' ['+String(x.episode).slice(0,80)+']',url:'https://ani.gamer.com.tw/animeVideo.php?sn='+x.videoSn,selected:String(x.videoSn)===source.id}))};
+      return {title:dmTitle(anime.title),year:String(anime.seasonStart||'').slice(0,4),date:monthOf(anime.seasonStart),episodes:[...unique.values()].slice(0,1000).map(x=>({provider:'bahamut',id:String(x.videoSn),label:String(x.episode).slice(0,80),title:dmTitle(anime.title)+' ['+String(x.episode).slice(0,80)+']',url:'https://ani.gamer.com.tw/animeVideo.php?sn='+x.videoSn,selected:String(x.videoSn)===source.id,...(x.group!==undefined?{group:String(x.group)}:{})}))};
     }
     const endpoint=source.kind==='bv'?'https://api.bilibili.com/x/web-interface/view?bvid='+source.id:'https://api.bilibili.com/pgc/view/web/season?'+(source.kind==='ss'?'season_id=':'ep_id=')+source.id;
     const data=await dmFetch(endpoint);
@@ -189,7 +190,7 @@ export async function matchDandanplay(bgmId,episodeNumber,env){
   // An explicit cross-database identity avoids guessing translations or seasons.
   let u;try{u=new URL(d.bangumiUrl);}catch{}
   if(!u||!['bgm.tv','bangumi.tv','chii.in'].includes(u.hostname)||u.pathname!=='/subject/'+bgmId)return {sources:[]};
-  const eps=d.episodes.filter(x=>/^\d+(?:\.\d+)?$/.test(x.label)&&Number(x.label)===Number(episodeNumber));
+  const eps=pickEpisodes(d.episodes,episodeNumber);
   return {sources:eps.length===1?eps:[]};
 }
 export function decodeDandanplay(data){
@@ -231,7 +232,7 @@ export async function fallbackDanmaku(item,provider,episode,env={}){
   },true,diagnostic);
   if(!identity)return {sources:[]};
   const detail=await resolveDanmaku(identity.url,env);
-  const episodes=detail.episodes.filter(x=>/^\d+(?:\.\d+)?$/.test(x.label)&&Number(x.label)===Number(episode));
+  const episodes=pickEpisodes(detail.episodes,episode);
   titleMatchLog('episode',{...diagnostic,episodeMatches:episodes.length,result:episodes.length===1?'matched':'unmatched',reason:episodes.length===1?'selected':episodes.length?'episode_ambiguous':'episode_missing'});
   return {sources:episodes.length===1?episodes:[]};
 }

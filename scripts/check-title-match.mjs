@@ -3,7 +3,8 @@
 // Without a key the LLM step is skipped and each title reports whether it matched deterministically.
 import { CATALOG_SEED } from '../src/catalog-data.js';
 import { catalogueItem } from '../src/catalog.js';
-import { fallbackDanmaku } from '../src/danmaku-server.js';
+import { fallbackDanmaku, resolveDanmaku } from '../src/danmaku-server.js';
+import { titleMatchCached } from '../src/title-match.js';
 
 const args=process.argv.slice(2);
 const opt=(name,fallback)=>args.find(x=>x.startsWith('--'+name+'='))?.split('=')[1]??fallback;
@@ -25,8 +26,14 @@ console.log('LLM gateway: '+(key?'live':'offline (LLM step skipped)'));
 for(const entry of items){
   logs=[];
   let bgm='-',dm='-';
-  try{const {item}=await catalogueItem(String(entry.id),env);bgm=item.bgmId?'bgm '+item.bgmId:'no bgm';
-    try{const r=await fallbackDanmaku(item,'bahamut','1',env);dm=r.sources[0]?'sn '+r.sources[0].id:'no ep1';}catch(e){dm='error '+e.message.slice(0,40);}
+  try{const {item}=await catalogueItem(String(entry.id),env);bgm=item.bgmId?'bgm '+item.bgmId+' '+(item.aliases.find(x=>/\p{Script=Han}/u.test(x))||item.aliases[0]||''):'no bgm';
+    try{
+      const r=await fallbackDanmaku(item,'bahamut','1',env);
+      // Show the chosen series (memory cache only) so each selection can be checked by eye.
+      const identity=await titleMatchCached('danmaku:'+JSON.stringify(['bahamut',item.id,item.title,item.year]),async()=>null,false);
+      const d=identity&&await resolveDanmaku(identity.url,env).catch(()=>null);
+      dm=(r.sources[0]?'sn '+r.sources[0].id:'no ep1')+(d?' '+d.title+' ('+d.date+', eps '+d.episodes.slice(0,3).map(x=>x.label).join(',')+'…)':'');
+    }catch(e){dm='error '+e.message.slice(0,40);}
   }catch(e){bgm='error '+e.message.slice(0,40);}
   const b=how('bangumi'),d=how('danmaku');
   for(const k of ['bangumi:'+b,'bahamut:'+d])totals[k]=(totals[k]||0)+1;

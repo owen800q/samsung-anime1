@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { chooseTitle, titleQueries, titleMatchCached, LLM_TIMEOUT_MS, monthOf } from '../src/title-match.js';
+import { chooseTitle, titleQueries, titleMatchCached, LLM_TIMEOUT_MS, monthOf, pickEpisodes } from '../src/title-match.js';
 import { fallbackDanmaku } from '../src/danmaku-server.js';
 const item={id:1921,title:'無職轉生III～到了異世界就拿出真本事～ (第三季)',year:'2026',season:'夏'};
 const candidates=[{id:1,title:'無職轉生 第二季',year:'2023'},{id:2,title:'無職轉生 ～到了異世界就拿出真本事～第三季',year:'2026'}];
@@ -187,4 +187,19 @@ test('dated Bahamut search rows are ranked and need no detail request before the
   assert.equal((await fallbackDanmaku(rezero,'bahamut','01',env)).sources[0].id,'48502');
   assert.equal(details,1,'only the selected series is resolved for its episode list');
   assert.equal(monthOf('2026/4/08'),'2026-04');assert.equal(monthOf('2026-04-08T00:00:00'),'2026-04');assert.equal(monthOf(''),'');
+});
+
+test('episodes numbered across seasons map by position only when unambiguous',()=>{
+  const eps=labels=>labels.map(label=>({label,id:label}));
+  assert.equal(pickEpisodes(eps(['38','39','40']),'01')[0].id,'38');
+  assert.equal(pickEpisodes(eps(['38','39','40']),'3')[0].id,'40');
+  assert.deepEqual(pickEpisodes(eps(['38','39','40']),'4'),[]);
+  assert.equal(pickEpisodes(eps(['1','2','3']),'2')[0].id,'2');
+  assert.deepEqual(pickEpisodes(eps(['38','40','41']),'1'),[],'a gap makes positions unreliable');
+  assert.deepEqual(pickEpisodes(eps(['38','38','39']),'1'),[],'duplicates make positions unreliable');
+  assert.equal(pickEpisodes(eps(['38','38.5','39','特別篇']),'2')[0].id,'39','specials do not shift positions');
+  assert.deepEqual(pickEpisodes(eps(['1','2']),'1.5'),[]);
+  const dubbed=[...eps(['38','39']).map(x=>({...x,group:'0'})),...eps(['38','39']).map(x=>({...x,id:'dub'+x.id,group:'3'}))];
+  assert.equal(pickEpisodes(dubbed,'1')[0].id,'38','a dubbed group repeating numbers does not make episodes ambiguous');
+  assert.equal(pickEpisodes(dubbed,'39')[0].id,'39');
 });
