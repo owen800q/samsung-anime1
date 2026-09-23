@@ -79,7 +79,7 @@
       const count=[...segments.values()].filter(x=>sourceKey(x.src)===sourceKey(src)).reduce((n,x)=>n+x.comments.length,0);
       return providerName(src.provider)+' '+count;
     }).join(' · ');
-    status((count?'已載入 '+count+' 條彈幕':pending.size?'正在讀取本集彈幕…':sources().length?'本時段暫時未有彈幕':'本集未配對彈幕，未找到能確定對應本集的來源')+(detail?' · '+detail:'')+(matching?' · 正在配對其他來源…':'')+(matchErrors.length?'；'+matchErrors.map(x=>x.text).join('；'):''));
+    status((count?'已載入 '+count+' 條彈幕':pending.size?'正在讀取本集彈幕…':sources().length?'本時段暫時未有彈幕':matching?'正在自動配對本集彈幕來源…':'本集未配對彈幕，未找到能確定對應本集的來源')+(detail?' · '+detail:'')+(matching&&sources().length?' · 正在配對其他來源…':'')+(matchErrors.length?'；'+matchErrors.map(x=>x.text).join('；'):''));
     $('danmaku-retry').hidden=!matchErrors.length&&!failed.size;
   }
   function startSource(){matchErrors=matchErrors.filter(x=>x.key.startsWith('match'));resetSource();settingsUI();if(!sources().length){status('本集未配對彈幕，會自動尋找對應來源。');return;}ensureSegments();loadedStatus();}
@@ -134,16 +134,19 @@
   async function autoMatch(info,e,g){
     if(!info?.seriesId||matching||setting?.revision&&!sources().length)return;
     const n=info.title.match(/\[(\d+(?:\.\d+)?)\]\s*$/)?.[1];if(!n)return;
-    const signal=controller.signal,revision=setting?.revision;
-    const current=()=>e===epoch&&g===searchEpoch&&revision===setting?.revision&&!saving&&!signal.aborted;
+    const signal=controller.signal;let revision=setting?.revision;
+    const current=()=>e===epoch&&g===searchEpoch&&revision===setting?.revision&&!signal.aborted;
     matching=true;loadedStatus();
     try{
-      // LLM-backed routes can take tens of seconds; aborting early cancels the Worker before it caches.
-      const {item}=await json('/api/catalog-item?id='+encodeURIComponent(info.seriesId)+'&match=1',signal,60000);
-      if(!current())return;
-      const names=[item.title,...(item.aliases||[])].map(seriesName);
-      const pair=async provider=>{
-        if(sources().some(x=>x.provider===provider))return null;
+      // The plain catalogue entry is immediate. The Bangumi identity (彈彈play bgmId) may need an LLM
+      // turn taking tens of seconds, so only 彈彈play waits for it; aborting early cancels the Worker before it caches.
+      const plain=json('/api/catalog-item?id='+encodeURIComponent(info.seriesId),signal);
+      const matched=json('/api/catalog-item?id='+encodeURIComponent(info.seriesId)+'&match=1',signal,60000);
+      plain.catch(()=>{});matched.catch(()=>{});
+      const pair=async(provider,request)=>{
+        const {item}=await request;
+        if(!current()||sources().some(x=>x.provider===provider))return null;
+        const names=[item.title,...(item.aliases||[])].map(seriesName);
         let mappingError;
         if(provider==='dandanplay'&&item.bgmId){
           try{const match=await json('/api/danmaku/match?bgmId='+item.bgmId+'&episode='+encodeURIComponent(n),signal);if(match.sources.length===1)return match.sources[0];}
@@ -159,13 +162,17 @@
         const eps=d.episodes.filter(x=>/^\d+(?:\.\d+)?$/.test(x.label)&&Number(x.label)===Number(n));
         return eps.length===1?eps[0]:noMatch();
       };
-      const jobs=[pair('bahamut'),(async()=>{const availability=await json('/api/danmaku/providers',signal);if(!availability.dandanplay)throw new Error('彈彈play 尚未完成後端配置');return pair('dandanplay');})()];
-      const results=await Promise.allSettled(jobs);if(!current())return;
+      // Save each provider as soon as it pairs: a fast Bahamut match must not wait for a slow 彈彈play one.
+      let saves=Promise.resolve();
+      const add=source=>{saves=saves.then(async()=>{
+        if(!source||!current()||saving||sources().some(x=>x.provider===source.provider))return;
+        if(await saveSource(null,0,[...sources(),{...source,offset:0}])){g=searchEpoch;revision=setting?.revision;}
+      });return saves;};
+      const jobs=[pair('bahamut',plain).then(add),(async()=>{const availability=await json('/api/danmaku/providers',signal);if(!availability.dandanplay)throw new Error('彈彈play 尚未完成後端配置');return add(await pair('dandanplay',matched));})()];
+      const results=await Promise.allSettled(jobs);await saves;if(!current())return;
       matchErrors=[...matchErrors.filter(x=>!x.key.startsWith('match')),...results.flatMap((r,i)=>r.status==='rejected'?[{key:'match:'+i,text:'自動配對暫時失敗：'+r.reason.message}]:[])];
-      const additions=results.flatMap(r=>r.status==='fulfilled'&&r.value?[{...r.value,offset:0}]:[]);
       matching=false;
-      if(additions.length){const saved=await saveSource(null,0,[...sources(),...additions]);if(!saved)return;}
-      else if(!sources().length&&!matchErrors.length){status('未找到能確定對應本集的彈幕來源，影片仍可播放。');return;}
+      if(!sources().length&&!matchErrors.length){status('未找到能確定對應本集的彈幕來源，影片仍可播放。');return;}
       loadedStatus();
     }catch(error){if(current()){matchErrors=[{key:'match',text:'自動配對暫時失敗：'+(error.message||'來源無法讀取')}];}}
     finally{if(e===epoch){matching=false;if(matchErrors.length)loadedStatus();}}

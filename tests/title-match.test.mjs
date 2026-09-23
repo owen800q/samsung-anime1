@@ -1,12 +1,37 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { chooseTitle, titleQueries, titleMatchCached, LLM_TIMEOUT_MS } from '../src/title-match.js';
+import { chooseTitle, titleQueries, titleMatchCached, LLM_TIMEOUT_MS, monthOf } from '../src/title-match.js';
 import { fallbackDanmaku } from '../src/danmaku-server.js';
 const item={id:1921,title:'無職轉生III～到了異世界就拿出真本事～ (第三季)',year:'2026',season:'夏'};
 const candidates=[{id:1,title:'無職轉生 第二季',year:'2023'},{id:2,title:'無職轉生 ～到了異世界就拿出真本事～第三季',year:'2026'}];
 const env={TITLE_MATCH_LLM_API_KEY:'test-token'};
 test('short query removes Roman season suffix while preserving full identity',()=>{
-  assert.deepEqual(titleQueries(item.title),[item.title,'無職轉生']);
+  assert.deepEqual(titleQueries(item.title),[item.title,'無職轉生','無職轉生III～到了異世界就拿出真本事～']);
+});
+test('a short "Re:" style prefix is never used as the series query',()=>{
+  assert.deepEqual(titleQueries('Re:從零開始的異世界生活 第四季'),['Re:從零開始的異世界生活 第四季','Re:從零開始的異世界生活']);
+  assert.deepEqual(titleQueries('葬送的芙莉蓮 第2期'),['葬送的芙莉蓮 第2期','葬送的芙莉蓮']);
+  assert.deepEqual(titleQueries('86'),['86']);
+});
+test('split-cour season: exact names are resolved by airing season, LLM gets start months and source season',async t=>{
+  const rezero={id:1878,title:'Re:從零開始的異世界生活 第四季',year:'2026',season:'春',aliases:[]};
+  t.mock.method(globalThis,'fetch',()=>{throw new Error('unexpected fetch');});
+  const cours=[{id:2,title:'Re：從零開始的異世界生活 第四季',year:'2026',date:'2026-08-12'},{id:1,title:'Re：從零開始的異世界生活 第四季',year:'2026',date:'2026-04-08'}];
+  assert.equal((await chooseTitle(rezero,cours,env)).id,1);
+  const bangumi=[
+    {id:425998,title:'Re：从零开始的异世界生活 第三季 袭击篇',year:'2024',date:'2024-10-02'},
+    {id:9303,title:'Re: 甜心战士',year:'2026',date:'2026-01-01'},
+    {id:633836,title:'Re：从零开始的异世界生活 第四季 夺还篇',year:'2026',date:'2026-08-12'},
+    {id:547888,title:'Re：从零开始的异世界生活 第四季 丧失篇',year:'2026',date:'2026-04-08'},
+  ];
+  t.mock.method(globalThis,'fetch',async(url,init)=>{
+    const body=JSON.parse(init.body),input=JSON.parse(body.messages[1].content);
+    assert.equal(input.source.season,'春');
+    assert.match(body.messages[0].content,/cours or parts/);
+    assert.deepEqual(input.candidates.map(x=>x.start),['2026-08','2026-04','2026-01'],'same-year candidates ranked by similarity, with start months');
+    return Response.json({choices:[{message:{content:'{"index":1,"confidence":0.92}'}}]});
+  });
+  assert.equal((await chooseTitle(rezero,bangumi,env)).id,547888);
 });
 test('exact identity has no LLM request; disabled fallback never calls LLM',async t=>{
   t.mock.method(globalThis,'fetch',()=>{throw new Error('unexpected fetch');});
@@ -136,4 +161,22 @@ test('invalid JSON and wrong-year candidates have distinct sanitized diagnostics
   await chooseTitle(item,[{title:'another title',year:'2023'}],env);
   assert.ok(logs.some(x=>x.reason==='year_mismatch'&&x.validCandidates===0&&x.candidates===1));
   assert.doesNotMatch(JSON.stringify(logs),/test-token|invalid json|another title/);
+});
+
+test('dated Bahamut search rows are ranked and need no detail request before the LLM',async t=>{
+  let details=0;const rezero={id:1878,title:'Re:從零開始的異世界生活 第四季',year:'2026',season:'春',aliases:[]};
+  const rows=[
+    {video_sn:44050,title:'陰陽迴天 Re:Birth Verse',info:'年份：2025/07 共 12 集'},
+    {video_sn:48502,title:'Re：從零開始的異世界生活 第四季',info:'年份：2026/04 共 18 集'},
+    {video_sn:40260,title:'Re：從零開始的異世界生活 第三季',info:'年份：2024/10 共 16 集'},
+  ];
+  t.mock.method(globalThis,'fetch',async url=>{
+    if(url.includes('chat/completions'))throw new Error('exact match must not call the LLM');
+    if(url.includes('search.php'))return Response.json({anime:rows});
+    if(url.includes('video.php')){details++;return Response.json({data:{anime:{title:'Re：從零開始的異世界生活 第四季 [1]',seasonStart:'2026/04/08',episodes:{0:[{videoSn:48502,episode:1},{videoSn:48503,episode:2}]}},video:{}}});}
+    throw new Error('unexpected '+url);
+  });
+  assert.equal((await fallbackDanmaku(rezero,'bahamut','01',env)).sources[0].id,'48502');
+  assert.equal(details,1,'only the selected series is resolved for its episode list');
+  assert.equal(monthOf('2026/4/08'),'2026-04');assert.equal(monthOf('2026-04-08T00:00:00'),'2026-04');assert.equal(monthOf(''),'');
 });

@@ -163,3 +163,16 @@ test('missing cross-database mapping falls back to exact title, year and episode
  await f.open(1,{seriesId:'1911'});for(let i=0;i<6;i++)await flush();
  assert.equal(f.stored.get('1').sources[1].provider,'dandanplay');assert.doesNotMatch(f.get('danmaku-status').textContent,/No mapping/);
 });
+
+test('a fast Bahamut pairing is saved and shown while the slow Bangumi/彈彈play match is still running',async()=>{
+ const f=fixture();const respond=autoResponses(f);let release;
+ f.hook.fetch=url=>url.includes('match=1')?new Promise(r=>release=()=>r(Response.json({item:{title:'fixture',year:'2026',bgmId:456}}))):url.includes('/providers')?Response.json({dandanplay:true}):url.includes('/match?')?Response.json({sources:[dandanSource]}):respond(url);
+ await f.open(3,{seriesId:'1911'});
+ assert.match(f.get('danmaku-status').textContent,/正在自動配對/);assert.doesNotMatch(f.get('danmaku-status').textContent,/未找到/);
+ for(let i=0;i<8;i++)await flush();
+ assert.equal(f.stored.get('3').sources.length,1);assert.equal(f.stored.get('3').sources[0].provider,'bahamut');
+ assert.match(f.get('danmaku-status').textContent,/正在配對其他來源/);
+ release();for(let i=0;i<8;i++)await flush();
+ assert.equal(f.stored.get('3').sources.map(x=>x.provider).join(),'bahamut,dandanplay');
+ assert.doesNotMatch(f.get('danmaku-status').textContent,/正在配對/);
+});

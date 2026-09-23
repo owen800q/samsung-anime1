@@ -1,4 +1,4 @@
-import { chooseTitle, titleQueries, titleMatchCached, titleMatchLog } from './title-match.js';
+import { chooseTitle, titleQueries, titleMatchCached, titleMatchLog, titleSimilarity, monthOf } from './title-match.js';
 import { PlaybackError } from './adapter.js';
 
 const DM_UA='SamsungAnime1/1.2 (https://github.com/owen800q/Samsung-anime1)';
@@ -58,7 +58,8 @@ export async function searchDanmaku(q,provider='bahamut',env={}){
   return dmCached('search:'+q,async()=>{
     const data=await dmFetch('https://api.gamer.com.tw/mobile_app/anime/v1/search.php?kw='+encodeURIComponent(q.trim()));
     if(!Array.isArray(data.anime))throw new PlaybackError('動畫瘋搜尋暫時無法使用。',502);
-    return {results:data.anime.filter(x=>dmNumber(x.video_sn)).slice(0,30).map(x=>({title:dmTitle(x.title),url:'https://ani.gamer.com.tw/animeVideo.php?sn='+x.video_sn,provider:'bahamut'}))};
+    // Search rows carry "年份：2026/04 共 18 集", so candidates rarely need a detail request for dating.
+    return {results:data.anime.filter(x=>dmNumber(x.video_sn)).slice(0,30).map(x=>{const date=monthOf(String(x.info||'').match(/(\d{4}\/\d{1,2})/)?.[1]);return {title:dmTitle(x.title),url:'https://ani.gamer.com.tw/animeVideo.php?sn='+x.video_sn,provider:'bahamut',...(date?{year:date.slice(0,4),date}:{})};})};
   });
 }
 export async function resolveDanmaku(input,env={}){
@@ -73,7 +74,9 @@ export async function resolveDanmaku(input,env={}){
       const eps=(Array.isArray(groups)?groups:Object.values(groups).flat()).filter(x=>dmNumber(x.videoSn));
       const unique=new Map(eps.map(x=>[String(x.videoSn),x]));
       if(!unique.size)throw new PlaybackError('動畫瘋未提供集數列表。',502);
-      return {title:dmTitle(anime.title),year:String(anime.seasonStart||'').slice(0,4),episodes:[...unique.values()].slice(0,1000).map(x=>({provider:'bahamut',id:String(x.videoSn),label:String(x.episode).slice(0,80),title:dmTitle(anime.title)+' ['+String(x.episode).slice(0,80)+']',url:'https://ani.gamer.com.tw/animeVideo.php?sn='+x.videoSn,selected:String(x.videoSn)===source.id}))};
+      // The series title includes the requested episode ("… 第四季 [1]"); keep only the series name.
+      anime.title=String(anime.title||'').replace(/\s*\[\d+(?:\.\d+)?\]\s*$/,'');
+      return {title:dmTitle(anime.title),year:String(anime.seasonStart||'').slice(0,4),date:monthOf(anime.seasonStart),episodes:[...unique.values()].slice(0,1000).map(x=>({provider:'bahamut',id:String(x.videoSn),label:String(x.episode).slice(0,80),title:dmTitle(anime.title)+' ['+String(x.episode).slice(0,80)+']',url:'https://ani.gamer.com.tw/animeVideo.php?sn='+x.videoSn,selected:String(x.videoSn)===source.id}))};
     }
     const endpoint=source.kind==='bv'?'https://api.bilibili.com/x/web-interface/view?bvid='+source.id:'https://api.bilibili.com/pgc/view/web/season?'+(source.kind==='ss'?'season_id=':'ep_id=')+source.id;
     const data=await dmFetch(endpoint);
@@ -166,7 +169,7 @@ async function searchDandanplay(q,env){
   return dmCached('dandan-search:'+env.DANDANPLAY_APP_ID+':'+q,async()=>{
     const data=await dandanRequest('/api/v2/search/anime','?keyword='+encodeURIComponent(q.trim()),env);
     if(!Array.isArray(data.animes))throw new PlaybackError('彈彈play 搜尋格式無效。',502);
-    return {results:data.animes.filter(x=>dmNumber(x.animeId)).slice(0,30).map(x=>({provider:'dandanplay',title:dmTitle(x.animeTitle),year:String(x.startDate||'').slice(0,4),url:'https://api.dandanplay.net/api/v2/bangumi/'+x.animeId}))};
+    return {results:data.animes.filter(x=>dmNumber(x.animeId)).slice(0,30).map(x=>({provider:'dandanplay',title:dmTitle(x.animeTitle),year:String(x.startDate||'').slice(0,4),date:monthOf(x.startDate),url:'https://api.dandanplay.net/api/v2/bangumi/'+x.animeId}))};
   },7200);
 }
 function dandanDetails(data){
@@ -212,11 +215,14 @@ export async function fallbackDanmaku(item,provider,episode,env={}){
       catch(error){failure=error;titleMatchLog('search',{...diagnostic,reason:'candidate_error'});}
     }
     if(!found.size&&failure)throw failure;
-    // Bahamut search omits dates. Resolve only a bounded shortlist for year validation.
-    const shortlist=[...found.values()].slice(0,6),candidates=[];let cursor=0;
+    // Rank by title similarity first: a short query (e.g. the series root) returns many unrelated hits.
+    const names=[item.title,...(item.aliases||[])];
+    const ranked=[...found.values()].map(x=>[x,Math.max(...names.map(n=>titleSimilarity(n,x.title)))]).sort((a,b)=>b[1]-a[1]).map(x=>x[0]);
+    const candidates=ranked.filter(x=>x.year).slice(0,20);
+    // Undated rows need a detail request. Resolve only a bounded shortlist for year validation.
+    const shortlist=ranked.filter(x=>!x.year).slice(0,6);let cursor=0;
     await Promise.all(Array.from({length:Math.min(3,shortlist.length)},async()=>{while(cursor<shortlist.length){const x=shortlist[cursor++];
-      if(x.year){candidates.push(x);continue;}
-      try{const d=await resolveDanmaku(x.url,env);candidates.push({...x,year:d.year,aliases:d.aliases||[]});}catch{titleMatchLog('search',{...diagnostic,reason:'candidate_error'});}
+      try{const d=await resolveDanmaku(x.url,env);candidates.push({...x,year:d.year,date:d.date,aliases:d.aliases||[]});}catch{titleMatchLog('search',{...diagnostic,reason:'candidate_error'});}
     }}));
     const selected=await chooseTitle(item,candidates,env,diagnostic);
     return selected?{url:selected.url}:null;
