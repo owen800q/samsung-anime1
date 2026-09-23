@@ -191,22 +191,58 @@
     }
     return {font,speed};
   }
-  let metrics={font:20,speed:100};
+  let metrics={font:20,speed:100},sprites=new Map(),spriteKey='';
+  // TV browsers report video.currentTime in coarse steps (often every 100-250ms), so reading it
+  // directly makes scrolling comments jump. Advance a wall clock between reports and ease it
+  // toward each new report, and never let it run backwards while playing.
+  const now=()=>typeof performance!=='undefined'?performance.now():Date.now();
+  let clockMedia=0,clockWall=0,reported=-1,shown=0;
+  function syncClock(){clockMedia=reported=shown=video.currentTime;clockWall=now();}
+  function playhead(){
+    const current=video.currentTime;
+    if(video.paused||video.ended||video.seeking||video.readyState<3){syncClock();return current;}
+    const t=now(),rate=video.playbackRate||1,predicted=clockMedia+(t-clockWall)/1000*rate;
+    if(current!==reported){
+      reported=current;const drift=current-predicted;
+      if(Math.abs(drift)>.5){clockMedia=shown=current;clockWall=t;return current;}
+      clockMedia+=drift*.1;
+    }
+    return shown=Math.max(shown,clockMedia+(t-clockWall)/1000*rate);
+  }
+  // Rasterise each comment once; blitting a bitmap per frame is far cheaper than strokeText+fillText on TV CPUs.
+  function sprite(c,dpr){
+    const key=c.color+'|'+c.text;let s=sprites.get(key);if(s)return s;
+    if(sprites.size>2000)sprites.clear();
+    const font=metrics.font,pad=4,el=document.createElement('canvas'),g=el.getContext?.('2d');
+    if(!g?.fillText)return null;
+    const width=c.width+pad*2,height=Math.ceil(font*1.35)+pad*2;
+    el.width=Math.ceil(width*dpr);el.height=Math.ceil(height*dpr);g.setTransform(dpr,0,0,dpr,0,0);
+    g.font='600 '+font+'px Arial, sans-serif';g.lineWidth=3;g.lineJoin='round';g.strokeStyle='#000000';g.fillStyle=c.color;
+    g.strokeText(c.text,pad,pad+font,c.width);g.fillText(c.text,pad,pad+font,c.width);
+    s={el,pad,font,width,height};sprites.set(key,s);return s;
+  }
   function draw(){
     if(!ctx)return;
     const w=canvas.clientWidth,h=canvas.clientHeight,dpr=Math.min(2,window.devicePixelRatio||1);
     if(!w||!h)return;
     const key=[w,h,dpr,density,filter,[...segments.entries()].map(([k,v])=>k+':'+v.comments.length).join(',')].join('|');
     if(key!==layoutKey){canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);metrics=buildLayout(w,h);layoutKey=key;}
+    if(spriteKey!==metrics.font+'|'+dpr){sprites.clear();spriteKey=metrics.font+'|'+dpr;}
     ctx.clearRect(0,0,w,h);if(!enabled||!episode||!sources().length)return;
-    const time=video.currentTime;
+    const time=playhead();
     let lo=0,hi=layout.length;while(lo<hi){const mid=(lo+hi)>>1;if(layout[mid].time<time-15)lo=mid+1;else hi=mid;}
-    ctx.font='600 '+metrics.font+'px Arial, sans-serif';ctx.lineWidth=3;ctx.strokeStyle='#000000';ctx.globalAlpha=.85;
-    for(let i=lo;i<layout.length;i++){const c=layout[i],age=time-c.time;if(age<0)break;if(age>c.duration)continue;const x=c.mode===1?w-age*metrics.speed:(w-c.width)/2;ctx.fillStyle=c.color;ctx.strokeText(c.text,x,c.y,w);ctx.fillText(c.text,x,c.y,w);}
+    ctx.globalAlpha=.85;
+    for(let i=lo;i<layout.length;i++){
+      const c=layout[i],age=time-c.time;if(age<0)break;if(age>c.duration)continue;
+      // Snap to device pixels so cached bitmaps stay sharp instead of being resampled every frame.
+      const x=Math.round((c.mode===1?w-age*metrics.speed:(w-c.width)/2)*dpr)/dpr,s=sprite(c,dpr);
+      if(s)ctx.drawImage(s.el,x-s.pad,c.y-s.font-s.pad,s.width,s.height);
+      else{ctx.font='600 '+metrics.font+'px Arial, sans-serif';ctx.lineWidth=3;ctx.strokeStyle='#000000';ctx.fillStyle=c.color;ctx.strokeText(c.text,x,c.y,w);ctx.fillText(c.text,x,c.y,w);}
+    }
     ctx.globalAlpha=1;
   }
   function animate(){raf=0;draw();if(enabled&&episode&&!video.paused&&!video.ended&&!document.hidden)raf=requestAnimationFrame(animate);}
-  function kick(){if(!raf&&enabled&&episode&&!video.paused&&!document.hidden)raf=requestAnimationFrame(animate);else draw();}
+  function kick(){syncClock();if(!raf&&enabled&&episode&&!video.paused&&!document.hidden)raf=requestAnimationFrame(animate);else draw();}
   function toggleUI(){$('danmaku-toggle').textContent=enabled?'彈幕：開':'彈幕：關';$('danmaku-toggle').setAttribute('aria-pressed',String(enabled));}
   $('danmaku-toggle').addEventListener('click',()=>{enabled=!enabled;toggleUI();if(enabled){loadedStatus();ensureSegments();kick();}else{cancelAnimationFrame(raf);raf=0;clearCanvas();status('彈幕已關閉');}});
   $('danmaku-density').addEventListener('change',()=>{density=Number($('danmaku-density').value);try{localStorage.setItem('anime1-danmaku-density',String(density));}catch{}layoutKey='';draw();});
@@ -219,7 +255,7 @@
   $('danmaku-retry').addEventListener('click',async()=>{failed.clear();matchErrors=[];$('danmaku-retry').hidden=true;const e=epoch;await refreshSetting();if(e!==epoch)return;ensureSegments();if(setting)void autoMatch(episode,e,searchEpoch);});
   video.addEventListener('playing',()=>{ensureSegments();kick();});
   video.addEventListener('timeupdate',()=>{ensureSegments();if(!raf)draw();});
-  for(const event of ['pause','seeked','loadedmetadata','ratechange'])video.addEventListener(event,()=>{ensureSegments();kick();});
+  for(const event of ['pause','seeked','loadedmetadata','ratechange','waiting'])video.addEventListener(event,()=>{ensureSegments();kick();});
   window.addEventListener('resize',()=>{layoutKey='';draw();});
   window.addEventListener('focus',()=>void refreshSetting());
   document.addEventListener('visibilitychange',()=>{if(!document.hidden){void refreshSetting();kick();}});
