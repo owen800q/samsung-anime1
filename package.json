@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
-    "test": "node --test tests/*.test.mjs"
+    "test": "node --test tests/*.test.mjs",
+    "check:danmaku": "node scripts/check-danmaku-smoothness.mjs"
   },
   "engines": { "node": ">=20" }
 }

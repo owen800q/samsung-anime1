@@ -5,22 +5,22 @@ import {readFile} from 'node:fs/promises';
 const script=await readFile(new URL('../src/danmaku.js',import.meta.url),'utf8');
 const flush=()=>new Promise(r=>setImmediate(r));
 function fixture(savedEnabled=null){
- const draws=[],nodes=new Map(),requests=[],stored=new Map(),frames=new Map();let fid=0;
- const context={clearRect(){draws.length=0;},setTransform(){},measureText:s=>({width:s.length*12}),strokeText(){},fillText(text,x,y){draws.push({text,x,y});}};
+ const clock={now:0},draws=[],nodes=new Map(),requests=[],stored=new Map(),frames=new Map();let fid=0;
+ const context={clearRect(){draws.length=0;},setTransform(){},measureText:s=>({width:s.length*12}),strokeText(){},fillText(text,x,y){draws.push({text,x,y});},drawImage(el,x,y){draws.push({text:el.label,x,y});}};
  class El extends EventTarget{constructor(){super();this.hidden=false;this.value='';this.textContent='';this.children=[];this.attrs={};}setAttribute(k,v){this.attrs[k]=v;}append(x){this.children.push(x);}replaceChildren(){this.children=[];}querySelector(){return this.children[0];}focus(){}getContext(){return context;}}
  const get=id=>{if(!nodes.has(id))nodes.set(id,new El());return nodes.get(id);};
  const video=get('video');Object.assign(video,{currentTime:0,duration:1500,paused:true,ended:false});Object.assign(get('danmaku-canvas'),{clientWidth:900,clientHeight:400,width:900,height:400});
- const document=new EventTarget();document.getElementById=get;document.createElement=()=>new El();document.hidden=false;
+ const document=new EventTarget();document.getElementById=get;document.createElement=tag=>{const el=new El();if(tag==='canvas')el.getContext=()=>({setTransform(){},strokeText(){},fillText(text){el.label=text;}});return el;};document.hidden=false;
  const window=new EventTarget();window.devicePixelRatio=1;
  const source={provider:'bahamut',id:'10',url:'https://ani.gamer.com.tw/animeVideo.php?sn=10',title:'fixture'};
  const entry=(id,src=source)=>({episodeId:id,source:src,offset:0,revision:1});stored.set('1',entry('1'));stored.set('2',entry('2',{...source,id:'20',url:'https://ani.gamer.com.tw/animeVideo.php?sn=20'}));
  const hook={fetch:null,settings:null};
  window.TVState={danmakuSettings:async(id,data)=>{if(hook.settings)return hook.settings(id,data);if(data)stored.set(id,{...data,revision:data.revision+1});return Response.json({entry:stored.get(id)||{episodeId:id,source:null,offset:0,revision:0}});}};
  const fetch=async url=>{requests.push(url);if(hook.fetch)return hook.fetch(url);return Response.json({comments:[{time:1,mode:1,color:'#ffffff',text:'<script>literal</script>'},{time:361,mode:5,color:'#ffffff',text:'later'}]});};
- const sandbox={window,document,localStorage:{getItem(key){return key==='anime1-danmaku-enabled'?savedEnabled:null;},setItem(){}},fetch,AbortController,AbortSignal,setInterval(){},requestAnimationFrame:fn=>{frames.set(++fid,fn);return fid;},cancelAnimationFrame:id=>frames.delete(id)};
+ const sandbox={window,document,localStorage:{getItem(key){return key==='anime1-danmaku-enabled'?savedEnabled:null;},setItem(){}},fetch,AbortController,AbortSignal,setInterval(){},performance:{now:()=>clock.now},requestAnimationFrame:fn=>{frames.set(++fid,fn);return fid;},cancelAnimationFrame:id=>frames.delete(id)};
  vm.runInNewContext(script,sandbox);
  const fire=(id,type)=>get(id).dispatchEvent(new Event(type,{cancelable:true}));
- return {get,video,draws,requests,stored,source,entry,hook,window,document,frames,fire,open:(info,extra={})=>window.TVDanmaku.open({episodeId:String(info),title:'fixture [01]',seriesTitle:'fixture',...extra})};
+ return {clock,get,video,draws,requests,stored,source,entry,hook,window,document,frames,fire,open:(info,extra={})=>window.TVDanmaku.open({episodeId:String(info),title:'fixture [01]',seriesTitle:'fixture',...extra})};
 }
 test('canvas follows video time, pauses without advancing, supports seek, offset and toggling',async()=>{
  const f=fixture();await f.open(1);await flush();f.video.currentTime=2;f.fire('video','seeked');
@@ -32,6 +32,15 @@ test('canvas follows video time, pauses without advancing, supports seek, offset
  f.fire('danmaku-toggle','click');assert.equal(f.draws.length,0);assert.equal(f.get('danmaku-toggle').attrs['aria-pressed'],'false');
  f.fire('danmaku-toggle','click');assert.ok(f.draws.length);assert.match(f.get('danmaku-status').textContent,/已載入/);
  f.window.TVDanmaku.stop();assert.equal(f.draws.length,0);
+});
+test('scrolling comments glide between coarse currentTime reports and never move backwards',async()=>{
+ const f=fixture();await f.open(1);await flush();Object.assign(f.video,{currentTime:2,paused:false,readyState:4,playbackRate:1});f.fire('video','playing');
+ const frame=ms=>{f.clock.now+=ms;const [id,fn]=[...f.frames][0];f.frames.delete(id);fn();return f.draws[0].x;};
+ const start=frame(0),a=frame(100),b=frame(100);
+ assert.ok(a<start&&b<a,'comments advance while currentTime has not been updated yet');
+ assert.ok(Math.abs((start-b)-900/7*.2)<1,'movement follows elapsed wall time at the scroll speed');
+ f.video.currentTime=2.15;assert.ok(frame(16)<=b,'a lagging currentTime report does not pull comments back');
+ f.video.currentTime=20;f.fire('video','seeked');assert.equal(f.draws.length,0,'large jumps resync immediately');
 });
 test('switching episodes ignores delayed comments and delayed settings from previous episode',async()=>{
  const f=fixture();let release;
