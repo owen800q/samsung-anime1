@@ -234,8 +234,8 @@
     ctx.globalAlpha=.85;
     for(let i=lo;i<layout.length;i++){
       const c=layout[i],age=time-c.time;if(age<0)break;if(age>c.duration)continue;
-      // Snap to device pixels so cached bitmaps stay sharp instead of being resampled every frame.
-      const x=Math.round((c.mode===1?w-age*metrics.speed:(w-c.width)/2)*dpr)/dpr,s=sprite(c,dpr);
+      // Keep sub-pixel positions: rounding to whole pixels makes per-frame steps alternate (e.g. 2px/3px) and judder.
+      const x=c.mode===1?w-age*metrics.speed:(w-c.width)/2,s=sprite(c,dpr);
       if(s)ctx.drawImage(s.el,x-s.pad,c.y-s.font-s.pad,s.width,s.height);
       else{ctx.font='600 '+metrics.font+'px Arial, sans-serif';ctx.lineWidth=3;ctx.strokeStyle='#000000';ctx.fillStyle=c.color;ctx.strokeText(c.text,x,c.y,w);ctx.fillText(c.text,x,c.y,w);}
     }
