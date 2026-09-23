@@ -409,10 +409,15 @@ const matchTitleKey = value => String(value || '').normalize('NFKC').toLowerCase
 const SEASON_SUFFIX=/(?:\s*[（(]?\s*(?:第[一二三四五六七八九十\d]+[季期部]|(?:season|s)\s*\d+|\d+(?:st|nd|rd|th)\s*season|(?<![A-Za-z])[IVXⅠⅡⅢⅣⅤ]+|\d+)\s*[）)]?)$/i;
 function titleQueries(title) {
   // Split at a subtitle separator only after a real prefix: "Re:從零開始…" must not search for "Re".
-  const sep=[...title.matchAll(/[～~:：（(]/g)].find(m=>matchTitleKey(title.slice(0,m.index)).length>=3);
+  const sep=[...title.matchAll(/[～~:：（(\-—]/g)].find(m=>matchTitleKey(title.slice(0,m.index)).length>=3);
   const root=(sep?title.slice(0,sep.index):title).replace(SEASON_SUFFIX,'').trim();
   const unseasoned=title.replace(SEASON_SUFFIX,'').trim();
-  return [...new Set([title, root, unseasoned].filter(x=>matchTitleKey(x).length>=2))].map(x => x.slice(0,100));
+  // Substring search (動畫瘋) misses on spacing and mixed scripts: "SPY×FAMILY間諜家家酒" vs
+  // "SPY×FAMILY 間諜家家酒 Season 3". Also try the longest CJK run and the leading Latin run.
+  const cjk=[root,unseasoned].map(x=>(x.match(/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}ー・！!？?、，]+/gu)||[]).map(x=>x.replace(/[・！!？?、，]+$/,'')).sort((a,b)=>b.length-a.length)[0]).find(Boolean);
+  const latin=root.match(/^[A-Za-z0-9][A-Za-z0-9×.&'! ]*[A-Za-z0-9]/)?.[0];
+  const parts=[cjk&&matchTitleKey(cjk).length>=3?cjk:'',latin&&matchTitleKey(latin).length>=4?latin:''];
+  return [...new Set([title, root, unseasoned, ...parts].filter(x=>matchTitleKey(x).length>=2))].slice(0,5).map(x => x.slice(0,100));
 }
 // Character-bigram Dice similarity, used only to rank candidates before the LLM sees them.
 function titleSimilarity(a,b){
@@ -424,7 +429,9 @@ function titleSimilarity(a,b){
 const SEASONS={冬:[1,2,3],春:[4,5,6],夏:[7,8,9],秋:[10,11,12]};
 // Normalise Bangumi (2026-04-08), 彈彈play (ISO) and Bahamut (2026/04/08) dates to YYYY-MM.
 const monthOf=value=>{const m=String(value||'').match(/^(\d{4})[-/](\d{1,2})/);return m&&Number(m[2])>=1&&Number(m[2])<=12?m[1]+'-'+m[2].padStart(2,'0'):'';};
-const inSeason=(item,x)=>Boolean(SEASONS[item.season]?.includes(Number(monthOf(x.date).slice(5))));
+// Multi-cour catalogue entries list every airing period: year "2025/2026", season "春/冬".
+const itemYears=item=>String(item.year||'').split('/').filter(x=>/^\d{4}$/.test(x));
+const inSeason=(item,x)=>String(item.season||'').split('/').some(season=>SEASONS[season]?.includes(Number(monthOf(x.date).slice(5))));
 async function titleMatchCached(key, load, allowLoad = true, context = {}) {
   const known = titleMatchMemory.get(key);
   const reportHit=(entry,cache)=>titleMatchLog('cache',{...context,cache,result:entry.data?'matched':entry.reason&&entry.reason!=='no_match'?'failed':'unmatched',reason:entry.reason,retryAfterSeconds:Math.max(0,Math.ceil((entry.expires-Date.now())/1000))});
@@ -457,7 +464,7 @@ async function chooseTitle(item, candidates, env = {}, context = {}) {
   const keys = names.map(matchTitleKey);
   const score = x => Math.max(...[x.title,...(x.aliases||[])].flatMap(n => names.map(m => titleSimilarity(n,m))));
   // Rank before capping so the right entry is not cut off behind unrelated same-year search hits.
-  const valid = candidates.filter(x => /^\d{4}$/.test(x.year) && x.year === String(item.year)).map(x=>[x,score(x)]).sort((a,b)=>b[1]-a[1]).map(x=>x[0]).slice(0,20);
+  const valid = candidates.filter(x => /^\d{4}$/.test(x.year) && itemYears(item).includes(x.year)).map(x=>[x,score(x)]).sort((a,b)=>b[1]-a[1]).map(x=>x[0]).slice(0,20);
   let exact = valid.filter(x => [x.title,...(x.aliases || [])].some(n => keys.includes(matchTitleKey(n))));
   // Two exact names in one year (e.g. split cours listed separately): the one airing in the source's season wins.
   if (exact.length > 1 && exact.filter(x => inSeason(item,x)).length === 1) exact = exact.filter(x => inSeason(item,x));
@@ -663,7 +670,7 @@ async function resolveCatalogueTitle(item, env = {}) {
       try{result=await catalogueJSON('https://api.bgm.tv/v0/search/subjects?limit=20',{method:'POST',signal:AbortSignal.timeout(10000),headers:{'Content-Type':'application/json'},body:JSON.stringify({keyword:query,filter:{type:[2],nsfw:false}})},3600);}
       catch(error){failure=error;titleMatchLog('search',{...diagnostic,reason:'candidate_error'});continue;}
       for(const x of result.data||[])if(x.type===2&&Number.isSafeInteger(x.id))candidates.set(x.id,{id:x.id,title:x.name_cn||x.name,aliases:[x.name,x.name_cn].filter(Boolean),year:String(x.date||'').slice(0,4),date:x.date});
-      if([...candidates.values()].some(x=>x.year===String(item.year)&&[x.title,...x.aliases].some(n=>normalTitle(n)===normalTitle(item.title))))break;
+      if([...candidates.values()].some(x=>itemYears(item).includes(x.year)&&[x.title,...x.aliases].some(n=>normalTitle(n)===normalTitle(item.title))))break;
     }
     if(!candidates.size&&failure)throw failure;
     const selected=await chooseTitle(item,[...candidates.values()],env,diagnostic);
@@ -881,11 +888,13 @@ async function fallbackDanmaku(item,provider,episode,env={}){
   const diagnostic={scope:'danmaku',seriesId:item.id,provider};
   if(!env.TITLE_MATCH_LLM_API_KEY){titleMatchLog('configuration',{...diagnostic,reason:'missing_secret'});return {sources:[]};}
   const identity=await titleMatchCached('danmaku:'+JSON.stringify([provider,item.id,item.title,item.year]),async()=>{
-    const found=new Map();let failure;
+    const found=new Map(),keys=[item.title,...(item.aliases||[])].map(matchTitleKey);let failure;
     // A failing query (often the long full title) must not hide the shorter one that finds the show.
     for(const query of titleQueries(item.title)){
       try{const data=await searchDanmaku(query,provider,env);for(const x of data.results)found.set(x.url,x);}
       catch(error){failure=error;titleMatchLog('search',{...diagnostic,reason:'candidate_error'});}
+      // Broader variants only widen recall; stop once a same-year exact title is already present.
+      if([...found.values()].some(x=>itemYears(item).includes(x.year)&&keys.includes(matchTitleKey(x.title))))break;
     }
     if(!found.size&&failure)throw failure;
     // Rank by title similarity first: a short query (e.g. the series root) returns many unrelated hits.

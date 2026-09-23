@@ -9,9 +9,17 @@ test('short query removes Roman season suffix while preserving full identity',()
   assert.deepEqual(titleQueries(item.title),[item.title,'無職轉生','無職轉生III～到了異世界就拿出真本事～']);
 });
 test('a short "Re:" style prefix is never used as the series query',()=>{
-  assert.deepEqual(titleQueries('Re:從零開始的異世界生活 第四季'),['Re:從零開始的異世界生活 第四季','Re:從零開始的異世界生活']);
+  assert.deepEqual(titleQueries('Re:從零開始的異世界生活 第四季'),['Re:從零開始的異世界生活 第四季','Re:從零開始的異世界生活','從零開始的異世界生活']);
+  // 動畫瘋 search is a substring match: "SPY×FAMILY 間諜家家酒 Season 3" is only found by a script-split query.
+  assert.deepEqual(titleQueries('SPY×FAMILY間諜家家酒 第三季'),['SPY×FAMILY間諜家家酒 第三季','SPY×FAMILY間諜家家酒','間諜家家酒','SPY×FAMILY']);
+  assert.ok(titleQueries('WIND BREAKER—防風少年— 第二季').includes('防風少年'));
   assert.deepEqual(titleQueries('葬送的芙莉蓮 第2期'),['葬送的芙莉蓮 第2期','葬送的芙莉蓮']);
   assert.deepEqual(titleQueries('86'),['86']);
+});
+test('multi-cour catalogue years accept candidates from any listed year',async t=>{
+  t.mock.method(globalThis,'fetch',()=>{throw new Error('unexpected fetch');});
+  const fire={id:1631,title:'炎炎消防隊 參之章(第三季)',year:'2025/2026',season:'春/冬',aliases:[]};
+  assert.equal((await chooseTitle(fire,[{id:9,title:'炎炎消防隊 參之章(第三季)',year:'2025',date:'2025-04-05'}],env)).id,9);
 });
 test('split-cour season: exact names are resolved by airing season, LLM gets start months and source season',async t=>{
   const rezero={id:1878,title:'Re:從零開始的異世界生活 第四季',year:'2026',season:'春',aliases:[]};

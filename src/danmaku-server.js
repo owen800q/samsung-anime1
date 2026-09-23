@@ -1,4 +1,4 @@
-import { chooseTitle, titleQueries, titleMatchCached, titleMatchLog, titleSimilarity, monthOf } from './title-match.js';
+import { chooseTitle, titleQueries, titleMatchCached, titleMatchLog, titleSimilarity, monthOf, matchTitleKey, itemYears } from './title-match.js';
 import { PlaybackError } from './adapter.js';
 
 const DM_UA='SamsungAnime1/1.2 (https://github.com/owen800q/Samsung-anime1)';
@@ -208,11 +208,13 @@ export async function fallbackDanmaku(item,provider,episode,env={}){
   const diagnostic={scope:'danmaku',seriesId:item.id,provider};
   if(!env.TITLE_MATCH_LLM_API_KEY){titleMatchLog('configuration',{...diagnostic,reason:'missing_secret'});return {sources:[]};}
   const identity=await titleMatchCached('danmaku:'+JSON.stringify([provider,item.id,item.title,item.year]),async()=>{
-    const found=new Map();let failure;
+    const found=new Map(),keys=[item.title,...(item.aliases||[])].map(matchTitleKey);let failure;
     // A failing query (often the long full title) must not hide the shorter one that finds the show.
     for(const query of titleQueries(item.title)){
       try{const data=await searchDanmaku(query,provider,env);for(const x of data.results)found.set(x.url,x);}
       catch(error){failure=error;titleMatchLog('search',{...diagnostic,reason:'candidate_error'});}
+      // Broader variants only widen recall; stop once a same-year exact title is already present.
+      if([...found.values()].some(x=>itemYears(item).includes(x.year)&&keys.includes(matchTitleKey(x.title))))break;
     }
     if(!found.size&&failure)throw failure;
     // Rank by title similarity first: a short query (e.g. the series root) returns many unrelated hits.

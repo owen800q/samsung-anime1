@@ -158,7 +158,7 @@
         if(exact.length!==1)return noMatch();
         const d=await json('/api/danmaku/resolve?url='+encodeURIComponent(exact[0].url),signal);
         const year=d.year||exact[0].year;
-        if(![d.title,...(d.aliases||[])].some(x=>names.includes(seriesName(x)))||!/^\d{4}$/.test(year)||year!==String(item.year))return noMatch();
+        if(![d.title,...(d.aliases||[])].some(x=>names.includes(seriesName(x)))||!/^\d{4}$/.test(year)||!String(item.year).split('/').includes(year))return noMatch();
         const eps=d.episodes.filter(x=>/^\d+(?:\.\d+)?$/.test(x.label)&&Number(x.label)===Number(n));
         return eps.length===1?eps[0]:noMatch();
       };
