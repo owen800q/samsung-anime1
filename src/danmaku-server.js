@@ -1,4 +1,4 @@
-import { chooseTitle, titleQueries, titleMatchCached, titleMatchLog, titleSimilarity, monthOf, matchTitleKey, itemYears, pickEpisodes } from './title-match.js';
+import { chooseTitle, titleQueries, titleMatchCached, titleMatchLog, titleSimilarity, monthOf, matchTitleKey, itemYears, pickEpisodes, matcherConfigured } from './title-match.js';
 import { PlaybackError } from './adapter.js';
 
 const DM_UA='SamsungAnime1/1.2 (https://github.com/owen800q/Samsung-anime1)';
@@ -207,7 +207,7 @@ async function dandanComments(id,env){
 export async function fallbackDanmaku(item,provider,episode,env={}){
   if(!['bahamut','dandanplay'].includes(provider)||!/^\d+(?:\.\d+)?$/.test(episode||''))throw new PlaybackError('配對資料無效。',400);
   const diagnostic={scope:'danmaku',seriesId:item.id,provider};
-  if(!env.TITLE_MATCH_LLM_API_KEY){titleMatchLog('configuration',{...diagnostic,reason:'missing_secret'});return {sources:[]};}
+  if(!matcherConfigured(env)){titleMatchLog('configuration',{...diagnostic,reason:'missing_secret'});return {sources:[]};}
   const identity=await titleMatchCached('danmaku:'+JSON.stringify([provider,item.id,item.title,item.year]),async()=>{
     const found=new Map(),keys=[item.title,...(item.aliases||[])].map(matchTitleKey);let failure;
     // A failing query (often the long full title) must not hide the shorter one that finds the show.

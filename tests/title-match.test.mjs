@@ -133,7 +133,7 @@ test('published client assets never contain gateway configuration; server bundle
   for(const name of await readdir(root)){
     if(!/\.(js|html|css|json)$/.test(name)||name==='_worker.js')continue;
     const content=await readFile(new URL(name,root),'utf8');
-    assert.doesNotMatch(content,/llm-web-api-ttfg|TITLE_MATCH_LLM_API_KEY|TITLE_MATCH_LLM_COOKIE|llmchat_auth/);
+    assert.doesNotMatch(content,/llm-web-api-ttfg|TITLE_MATCH_LLM_API_KEY|TITLE_MATCH_LLM_COOKIE|llmchat_auth|jevai|JEV_API_KEY/);
   }
   const excluded=await readFile(new URL('.assetsignore',root),'utf8');
   assert.ok(excluded.split(/\r?\n/).includes('_worker.js'));
@@ -213,4 +213,32 @@ test('a fast Gemini failure falls back to the next model; auth errors and timeou
   await assert.rejects(chooseTitle(item,candidates,env),error=>error.status===401);assert.deepEqual(models,['gemini-fast']);
   models.length=0;t.mock.method(globalThis,'fetch',async(url,init)=>{models.push(JSON.parse(init.body).model);throw new DOMException('slow','TimeoutError');});
   await assert.rejects(chooseTitle(item,candidates,env),error=>error.name==='TimeoutError');assert.deepEqual(models,['gemini-fast']);
+});
+test('Jev decides confidently, gets season facts precomputed, and falls back to the gateway when unsure or failing',async t=>{
+  const rezero={id:1878,title:'Re:從零開始的異世界生活 第四季',year:'2026',season:'春',aliases:[]};
+  const cours=[{id:633836,title:'Re：从零开始的异世界生活 第四季 夺还篇',year:'2026',date:'2026-08-12'},{id:547888,title:'Re：从零开始的异世界生活 第四季 丧失篇',year:'2026',date:'2026-04-08'}];
+  const both={JEV_API_KEY:'jev-test',TITLE_MATCH_LLM_API_KEY:'test-token'};
+  let jevAnswer,calls=[];
+  t.mock.method(globalThis,'fetch',async(url,init)=>{
+    if(url==='https://www.jevai.org/api/v1/decisions'){calls.push('jev');
+      assert.equal(init.headers.Authorization,'Bearer jev-test');assert.equal(init.redirect,'manual');
+      const body=JSON.parse(init.body),criteria=body.questions.match.criteria;
+      assert.equal(body.questions.match.type,'choice');assert.ok('none' in criteria);
+      const byTitle=Object.fromEntries(Object.entries(criteria).filter(([k])=>k!=='none').map(([k,v])=>[v.title,[k,v.airs_in_source_season]]));
+      assert.equal(byTitle[cours[1].title][1],true);assert.equal(byTitle[cours[0].title][1],false,'season comparison is done in code');
+      if(jevAnswer instanceof Response)return jevAnswer;
+      const choice=jevAnswer.choice==='spring'?byTitle[cours[1].title][0]:jevAnswer.choice;
+      return Response.json({code:0,message:'ok',data:{answers:{match:{type:'choice',choice,confidence:jevAnswer.confidence,probabilities:{[choice]:jevAnswer.p}}}}});}
+    calls.push('gateway');return Response.json({choices:[{message:{content:'{"index":0,"confidence":0.95}'}}]});
+  });
+  jevAnswer={choice:'spring',confidence:0.9,p:0.95};
+  assert.equal((await chooseTitle(rezero,cours,both)).id,547888);assert.deepEqual(calls,['jev']);
+  calls=[];jevAnswer={choice:'none',confidence:0.9,p:0.95};
+  assert.equal(await chooseTitle(rezero,cours,both),null);assert.deepEqual(calls,['jev'],'a confident none is final');
+  calls=[];jevAnswer={choice:'spring',confidence:0.3,p:0.5};
+  assert.ok(await chooseTitle(rezero,cours,both));assert.deepEqual(calls,['jev','gateway'],'low confidence asks the gateway');
+  calls=[];jevAnswer=new Response('no',{status:401});
+  assert.ok(await chooseTitle(rezero,cours,both));assert.deepEqual(calls,['jev','gateway'],'a Jev failure asks the gateway');
+  calls=[];jevAnswer={choice:'spring',confidence:0.3,p:0.5};
+  assert.equal(await chooseTitle(rezero,cours,{JEV_API_KEY:'jev-test'}),null);assert.deepEqual(calls,['jev'],'Jev alone never guesses');
 });
