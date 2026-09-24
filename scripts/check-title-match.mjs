@@ -18,7 +18,7 @@ const items=CATALOG_SEED.entries.filter(x=>ids.length?ids.includes(x.id):!x.bgmI
 let logs=[];console.info=entry=>logs.push(entry);
 const how=scope=>{
   const own=logs.filter(x=>x.scope===scope);
-  const pick=own.find(x=>x.stage==='selection'||x.stage==='llm_result'||x.stage==='llm_error');
+  const pick=own.findLast(x=>x.stage==='selection'||x.stage==='llm_result'||x.stage==='llm_error');
   return pick?.stage==='selection'?pick.reason:pick?.stage==='llm_result'?'llm_'+pick.reason:pick?.stage==='llm_error'?(key?'llm_'+pick.reason:'needs_llm'):own.at(-1)?.reason||'-';
 };
 const totals={};

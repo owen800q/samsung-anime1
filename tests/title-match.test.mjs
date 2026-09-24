@@ -203,3 +203,14 @@ test('episodes numbered across seasons map by position only when unambiguous',()
   assert.equal(pickEpisodes(dubbed,'1')[0].id,'38','a dubbed group repeating numbers does not make episodes ambiguous');
   assert.equal(pickEpisodes(dubbed,'39')[0].id,'39');
 });
+test('a fast Gemini failure falls back to the next model; auth errors and timeouts do not',async t=>{
+  const models=[];
+  t.mock.method(globalThis,'fetch',async(url,init)=>{const {model}=JSON.parse(init.body);models.push(model);
+    return model==='gemini-fast'?Response.json({error:{message:'upstream HTTPError',type:'upstream_error'}},{status:502}):Response.json({choices:[{message:{content:'{"index":0,"confidence":0.95}'}}]});});
+  assert.equal(await chooseTitle(item,candidates,env),candidates[1]);
+  assert.deepEqual(models,['gemini-fast','qwen']);
+  models.length=0;t.mock.method(globalThis,'fetch',async(url,init)=>{models.push(JSON.parse(init.body).model);return new Response('no',{status:401});});
+  await assert.rejects(chooseTitle(item,candidates,env),error=>error.status===401);assert.deepEqual(models,['gemini-fast']);
+  models.length=0;t.mock.method(globalThis,'fetch',async(url,init)=>{models.push(JSON.parse(init.body).model);throw new DOMException('slow','TimeoutError');});
+  await assert.rejects(chooseTitle(item,candidates,env),error=>error.name==='TimeoutError');assert.deepEqual(models,['gemini-fast']);
+});
