@@ -4,9 +4,9 @@ import path from 'node:path';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const out = path.join(root, 'dist');
 await mkdir(path.join(out,'vendor'), { recursive: true });
-for (const file of ['index.html','style.css','app.js','home.js','home.css','state.js','danmaku.js','danmaku.css','player.js','vendor/dplayer-1.27.1.min.js','vendor/DPlayer-LICENSE','favicon.svg','_headers','_routes.json','.assetsignore']) await copyFile(path.join(root,'src',file),path.join(out,file));
+for (const file of ['index.html','style.css','app.js','home.js','home.css','state.js','pairing.js','pairing.css','vendor/qrcode.js','vendor/QRCode-LICENSE','danmaku.js','danmaku.css','player.js','vendor/dplayer-1.27.1.min.js','vendor/DPlayer-LICENSE','favicon.svg','_headers','_routes.json','.assetsignore']) await copyFile(path.join(root,'src',file),path.join(out,file));
 const modules=[];
-for(const file of ['catalog-data.js','adapter.js','jev-session.js','title-match.js','catalog.js','danmaku-server.js','sync-server.js','worker.js']){
+for(const file of ['catalog-data.js','adapter.js','jev-session.js','title-match.js','catalog.js','danmaku-server.js','pairing-server.js','sync-server.js','worker.js']){
   let code=(await readFile(path.join(root,'src',file),'utf8')).replace(/^import .*;\n/gm,'');
   if(file!=='worker.js')code=code.replace(/^export (?!class WatchHistory)/gm,'');
   modules.push(code);

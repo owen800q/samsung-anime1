@@ -64,7 +64,13 @@ Refresh and browser Back/Forward preserve catalogue filters, search results, ani
 
 All history records (episode, series, position, duration, completion and update revision) persist in **SQLite-backed Cloudflare Durable Objects**, using the transactional storage API. `wrangler.jsonc` creates the `WatchHistory` class with a `new_sqlite_classes` migration and binds `WATCH_HISTORY` on deployment. No ChatGPT account, external auth provider or manually created database ID is required.
 
-Open **裝置同步** and copy the sync code from one device into another. Each randomly generated 128-bit code selects a private history profile; possession of the code permits reading and updating that profile. Tokens are sent only in the Authorization header and hashed before selecting a Durable Object. Different codes have separate histories. Connecting another profile switches histories rather than publishing or merging unrelated profiles.
+Open **裝置同步** on the TV/desktop to display a QR code and a temporary six-digit code. Scan using the phone camera, or open **裝置同步 → 連接電視／電腦** on the phone and enter the digits. Verify the matching code and explicitly confirm **連接並保留兩邊紀錄**. The TV connects automatically without opening its keyboard. Codes expire after five minutes; an established connection does not expire with its invitation.
+
+Pair the office computer with the phone once; later pair the home TV with that same phone/browser. The office computer can be switched off. Subsequent visits use the persistent shared cloud profile automatically. Existing Watch History and episode resume behavior remain available.
+
+The requesting device's cloud history/settings merge into the phone's profile, retaining the latest server-saved activity for duplicates, including intentional rewinds. Original timestamps are preserved and the existing 500-record retention applies. Only the requesting device switches profile; other devices on its old profile stay unchanged. Uploads must complete before pairing starts.
+
+The original 128-bit bearer remains under **進階：私人復原碼／舊同步碼**. Possession allows reading/updating that profile; do not publish it. Recovery switches rather than merges histories and requires a separate confirmation. This release retains shared-profile authorization, not individual-device accounts or per-device revocation. See [device pairing](docs/device-pairing.md).
 
 Progress saves every 15 seconds during playback and on pause, seek, end or leaving the page. The server retains the 500 most recently updated episodes per profile. Local storage is only an offline cache/outbox; it is not the cross-device database. Reconnection, page focus, episode selection and a 30-second foreground poll refresh server history. Revision checks prevent an outdated offline write from silently overwriting newer server progress. Forced browser/TV shutdown can lose the last unsent seconds. History from before this feature cannot be reconstructed.
 

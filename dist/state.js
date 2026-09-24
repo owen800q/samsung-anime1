@@ -23,8 +23,8 @@
           else if(current)current.revision=data.entry.revision;
           announce();
         }
-        syncStatus('已同步至雲端');
-      }catch{syncStatus('暫存於此裝置，連線恢復後再同步');}
+        syncStatus('觀看紀錄已儲存至雲端');return true;
+      }catch{syncStatus('暫存於此裝置，連線恢復後再同步');return false;}
     })().finally(()=>{sending=null;});return sending;
   }
   async function refresh(){
@@ -32,12 +32,12 @@
     const profile=token;
     pulling=(async()=>{
       try{
-        await send();
+        const uploaded=await send();
         const response=await fetch('/api/history',{headers:{Authorization:'Bearer '+profile},signal:AbortSignal.timeout(8000)});
         if(!response.ok)throw new Error('History unavailable');const data=await response.json();if(profile!==token)return;
         for(const remote of data.entries||[]){const local=entries[remote.episodeId];if(!local?.dirty&&(remote.revision>=(local?.revision||0)))entries[remote.episodeId]={...remote,dirty:false};}
-        announce();syncStatus('已同步至雲端');
-      }catch{syncStatus('暫存於此裝置，連線恢復後再同步');}
+        announce();syncStatus(uploaded?'觀看紀錄已儲存至雲端':'仍有紀錄暫存於此裝置，連線恢復後再同步');return uploaded;
+      }catch{syncStatus('暫存於此裝置，連線恢復後再同步');return false;}
     })().finally(()=>{pulling=null;});return pulling;
   }
   function save(value){
@@ -49,18 +49,25 @@
   const route=()=>new URLSearchParams(location.hash.slice(1));
   const time=value=>{const s=Math.max(0,Math.floor(value||0));return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');};
   window.TVState={danmakuSettings:(id,data,signal)=>fetch('/api/danmaku/settings?episode='+encodeURIComponent(id),{method:data?'PUT':'GET',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:data?JSON.stringify(data):undefined,signal}),route,navigate,time,save,refresh,all:()=>Object.values(entries).sort((a,b)=>b.updatedAt-a.updatedAt),get:id=>entries[String(id)],latest:seriesId=>Object.values(entries).filter(x=>String(x.seriesId)===String(seriesId)).sort((a,b)=>b.updatedAt-a.updatedAt)[0]};
-  $('sync-code').value=token.match(/.{1,4}/g).join('-');
-  $('sync-toggle').addEventListener('click',()=>{$('sync-panel').hidden=!$('sync-panel').hidden;if(!$('sync-panel').hidden)$('sync-code').focus();});
-  $('sync-copy').addEventListener('click',async()=>{try{await navigator.clipboard.writeText($('sync-code').value);syncStatus('同步碼已複製');}catch{$('sync-code').select();syncStatus('請複製上方同步碼');}});
-  $('sync-form').addEventListener('submit',async e=>{
-    e.preventDefault();const next=$('sync-input').value.replace(/[-\s]/g,'').toLowerCase();
-    if(!/^[a-f0-9]{32}$/.test(next)){syncStatus('請輸入完整的 32 位同步碼');return;}
-    emit('anime1:profile-changing');await send();token=next;write('anime1-profile',token);entries=read('anime1-history:'+token,{});pulling=null;$('sync-code').value=token.match(/.{1,4}/g).join('-');$('sync-input').value='';announce();await refresh();emit('anime1:profile-changed');
+  // Pairing UI owns presentation; state owns profile switching and pending-write safety.
+  async function changeProfile(next){
+    if(!/^[a-f0-9]{32}$/.test(next))throw new Error('復原碼無效。');
+    emit('anime1:profile-changing');
+    if(!await send())throw new Error('仍有未儲存的紀錄，請連線後重試。');
+    if(pulling)await pulling;
+    if(!write('anime1-profile',next))throw new Error('瀏覽器無法保存連接，請關閉私密模式或允許網站儲存資料。');
+    token=next;entries=read('anime1-history:'+token,{});announce();
+    const synced=await refresh();emit('anime1:profile-changed');return synced;
+  }
+  Object.assign(window.TVState,{
+    profile:()=>token,flush:send,changeProfile,
+    pauseForPairing:()=>emit('anime1:profile-changing'),
+    pairing:(action,data,profile=token)=>fetch('/api/pairing/'+action,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+profile},body:JSON.stringify(data),signal:AbortSignal.timeout(10000)})
   });
   setInterval(()=>{if(!document.hidden)void refresh();},30000);
   window.addEventListener('online',()=>void refresh());
   window.addEventListener('focus',()=>void refresh());
   window.addEventListener('hashchange',()=>emit('anime1:route'));
-  window.addEventListener('storage',e=>{if(e.key==='anime1-history:'+token){entries=read(e.key,{});emit('anime1:history-updated');}});
+  window.addEventListener('storage',e=>{if(e.key==='anime1-profile'){const next=read(e.key,null);if(next!==token&&/^[a-f0-9]{32}$/.test(next||''))void changeProfile(next).catch(()=>syncStatus('裝置連接已變更，請重新整理。'));}if(e.key==='anime1-history:'+token){entries=read(e.key,{});emit('anime1:history-updated');}});
   void refresh();
 })();

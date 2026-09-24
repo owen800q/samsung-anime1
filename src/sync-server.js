@@ -1,3 +1,4 @@
+import { PairingSessions, pairingHistory } from './pairing-server.js';
 import { currentJevCookie } from './jev-session.js';
 import { validDanmakuSetting } from './danmaku-server.js';
 const historyHeaders={'Cache-Control':'no-store','Content-Type':'application/json','X-Content-Type-Options':'nosniff'};
@@ -8,8 +9,12 @@ export function validProgress(data){
 }
 // One durable object per unguessable sync profile; no public shared history.
 export class WatchHistory {
-  constructor(ctx,env){this.storage=ctx.storage;this.env=env||{};this.jevLock=Promise.resolve();}
+  constructor(ctx,env){this.storage=ctx.storage;this.env=env||{};this.jevLock=Promise.resolve();this.pairing=new PairingSessions(this.storage,this.env);}
+  async alarm(){return this.pairing.cleanup();}
   async fetch(request){
+    const path=new URL(request.url).pathname;
+    if(path.startsWith('/pairing/'))return this.pairing.fetch(request);
+    if(path==='/pairing-export'||path==='/pairing-import')return pairingHistory(this.storage,request,validProgress,validDanmakuSetting);
     if(new URL(request.url).pathname==='/danmaku-settings')return this.danmakuSettings(request);
     // Internal only: historyRoute never forwards this path, and only the 'jev-session:v1' instance is asked.
     if(new URL(request.url).pathname==='/jev-session')return this.jevSession(request);
