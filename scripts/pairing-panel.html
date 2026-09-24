@@ -1,0 +1,38 @@
+  <p id="pair-notice" role="status" hidden></p>
+  <section id="sync-panel" role="dialog" aria-modal="true" aria-labelledby="pair-title" hidden>
+    <div class="pairing-dialog">
+      <div class="pairing-heading"><h2 id="pair-title" tabindex="-1">裝置同步</h2><button id="pair-close" class="tv-button outline" aria-label="關閉裝置同步">✕</button></div>
+      <p id="pair-linked" class="pairing-small">首次連接一次，之後自動同步；不需要同時開機或使用相同 Wi-Fi。</p>
+      <div id="pair-home">
+        <h3>換個螢幕，接住睇。</h3><p class="pairing-lead">用手機連接電視或公司電腦，唔使再用遙控器輸入長碼。</p>
+        <div class="pairing-actions"><button id="pair-enter" class="tv-button">連接電視／電腦</button><button id="pair-create" class="tv-button secondary">顯示 QR Code，讓手機連接</button></div>
+        <p class="pairing-small">公司睇完返屋企？先用手機連接公司電腦的紀錄，返屋企再掃電視的 QR Code。之後每日直接開電視繼續睇。</p>
+      </div>
+      <div id="pair-wait" hidden>
+        <h3>用手機掃描，同步觀看進度</h3>
+        <div class="pairing-grid"><canvas id="pair-qr" role="img" aria-label="用手機相機掃描這個配對 QR Code"></canvas><div><p>無法掃描？在手機開啟<br><strong id="pair-site"></strong><br>選「裝置同步 → 連接電視／電腦」，輸入：</p><div id="pair-digits" class="pairing-code" aria-label="六位配對碼"></div><p id="pair-expiry"></p><p class="pairing-small">有效時間只限制首次配對，連接後毋須每天重新配對。</p></div></div>
+        <p id="pair-wait-status" role="status">等待手機確認…</p>
+        <div class="pairing-actions"><button id="pair-renew" class="tv-button" hidden>產生新配對碼</button><button id="pair-options" class="tv-button secondary">其他方式／復原碼</button><button id="pair-cancel" class="tv-button outline">取消</button></div>
+      </div>
+      <div id="pair-input" hidden>
+        <h3>連接電視／電腦</h3><p>在另一裝置開啟「裝置同步」，再輸入畫面上的六位配對碼。</p>
+        <form id="pair-code-form"><label for="pair-code-input">配對碼</label><input id="pair-code-input" class="tv-input" type="text" inputmode="numeric" autocomplete="one-time-code" autocapitalize="off" spellcheck="false" maxlength="12" placeholder="000 000" required><div class="pairing-actions"><button id="pair-submit" class="tv-button" type="submit">下一步</button><button id="pair-input-back" class="tv-button outline" type="button">返回</button></div></form>
+      </div>
+      <div id="pair-confirm" hidden>
+        <h3>確認連接這部裝置？</h3><div id="pair-confirm-code" class="pairing-code"></div><p id="pair-counts"></p>
+        <div id="pair-empty-warning" class="pairing-warning" hidden><strong>這個瀏覽器未有觀看紀錄。</strong><p class="pairing-small">首次連接公司電腦時可以繼續，電腦紀錄會保留。若你平時用另一瀏覽器觀看，請改用該瀏覽器配對。</p></div>
+        <p class="pairing-small">合併兩邊最近的觀看紀錄（最多 500 集）；同一集使用較新儲存的進度，而非最遠播放位置。彈幕設定亦會合併。</p>
+        <p class="pairing-small">這部電視／電腦會加入本手機的紀錄。原群組的其他裝置保持不變，需要時可逐部重新連接。</p>
+        <label class="pairing-confirm-check"><input id="pair-match" type="checkbox">我確認配對碼與眼前的電視／電腦相同，並同意合併紀錄。</label>
+        <div class="pairing-actions"><button id="pair-approve" class="tv-button" disabled>連接並保留兩邊紀錄</button><button id="pair-confirm-back" class="tv-button outline">取消確認</button></div>
+      </div>
+      <div id="pair-done" hidden><h3>確認完成</h3><p id="pair-done-text" role="status"></p><button id="pair-finish" class="tv-button">完成</button></div>
+      <div id="pair-error" class="error-box" role="alert" hidden></div>
+      <p id="sync-status" role="status">正在連接雲端紀錄…</p>
+      <details id="sync-advanced"><summary>進階：私人復原碼／舊同步碼</summary>
+        <p class="pairing-small">只供備份或取回舊紀錄。持有復原碼的人可讀取及更改紀錄，請勿公開分享。清除瀏覽器資料後，可用已連接的裝置重新配對，或輸入此復原碼。</p>
+        <label for="sync-code">此瀏覽器的私人復原碼</label><div class="sync-fields"><input id="sync-code" class="tv-input" readonly autocomplete="off"><button id="sync-copy" class="tv-button secondary">複製復原碼</button></div>
+        <form id="sync-form"><label for="sync-input">取回另一份紀錄</label><input id="sync-input" class="tv-input" autocomplete="off" maxlength="64" placeholder="貼上私人復原碼或舊同步碼" required><label class="pairing-confirm-check"><input id="sync-restore-confirm" type="checkbox" required>切換此瀏覽器的紀錄；原有雲端紀錄不會刪除，但不會在這一步合併。</label><button id="sync-restore" class="tv-button" type="submit">復原紀錄</button></form>
+      </details>
+    </div>
+  </section>

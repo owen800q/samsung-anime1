@@ -1,7 +1,7 @@
 name: Build and tests
 on:
   push:
-    branches: [main, feat/tv-qr-device-pairing]
+    branches: [main]
   pull_request:
     branches: [main]
 permissions:
@@ -9,24 +9,23 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - run: mkdir -p pairing-results
       - run: npm run build
-      - run: npm test
-      - name: Upload reproducible test bundle
+      - run: npm test 2>&1 | tee pairing-results/unit.log
+      - run: npm install --no-save --package-lock=false playwright@1.57.0 jsqr@1.4.0
+      - run: npx playwright install --with-deps chromium
+      - run: node scripts/check-pairing.mjs 2>&1 | tee pairing-results/browser.log
+        env:
+          PAIRING_ARTIFACT_DIR: pairing-results/screenshots
+      - uses: actions/upload-artifact@v4
         if: always()
-        uses: actions/upload-artifact@v4
         with:
-          name: anime1-test-bundle
+          name: pairing-test-results
           retention-days: 3
-          path: |
-            src/
-            dist/
-            scripts/
-            tests/
-            package.json
-            README.md
-            wrangler*.jsonc
+          path: pairing-results/
