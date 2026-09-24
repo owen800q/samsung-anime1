@@ -1,6 +1,7 @@
 // Short-lived invitations in the existing WATCH_HISTORY Durable Object namespace.
 const PAIR_TTL = 5 * 60 * 1000;
 const PAIR_DELIVERY_TTL = 60 * 1000;
+const PAIR_CONFIRM_TTL = 2 * 60 * 1000;
 const pairJSON = (data, status = 200) => Response.json(data, {status, headers: {
   'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', 'X-Content-Type-Options': 'nosniff'
 }});
@@ -38,7 +39,7 @@ export async function pairingRoute(request, env) {
   if (!token) return pairJSON({error: '請先啟用此瀏覽器的觀看紀錄。'}, 401);
   if (!env.WATCH_HISTORY) return pairJSON({error: '雲端同步尚未啟用，觀看紀錄仍保留在此裝置。'}, 503);
   const action = url.pathname.slice('/api/pairing/'.length);
-  if (!['create', 'preview', 'approve', 'status', 'cancel', 'ack'].includes(action)) return pairJSON({error: '找不到配對功能。'}, 404);
+  if (!['create', 'preview', 'approve', 'status', 'accept', 'cancel', 'ack'].includes(action)) return pairJSON({error: '找不到配對功能。'}, 404);
   try {
     const body = await pairBody(request);
     const client = await pairHash(request.headers.get('cf-connecting-ip') || 'unknown');
@@ -49,11 +50,13 @@ export async function pairingRoute(request, env) {
   } catch (error) { return pairJSON({error: error.status ? error.message : '配對服務暫時未能回應，請重試。'}, error.status || 503); }
 }
 export class PairingSessions {
-  constructor(storage, env) { this.storage = storage; this.env = env; this.lock = Promise.resolve(); }
-  fetch(request) {
-    // Serialise approvals across cross-object fetches; concurrent confirmations cannot both win.
-    const run = this.lock.then(() => this.handle(request));
-    this.lock = run.catch(() => {}); return run;
+  constructor(storage, env) { this.storage = storage; this.env = env; this.locks = new Map(); }
+  fetch(request) { return this.handle(request); }
+  // Serialise work per invitation across cross-object fetches; unrelated invitations are not blocked.
+  exclusive(key, task) {
+    const run = (this.locks.get(key) || Promise.resolve()).then(task), tail = run.catch(() => {});
+    this.locks.set(key, tail); tail.then(() => { if (this.locks.get(key) === tail) this.locks.delete(key); });
+    return run;
   }
   async scheduleCleanup() {
     if (!await this.storage.getAlarm()) await this.storage.setAlarm(Date.now() + 60000);
@@ -78,67 +81,87 @@ export class PairingSessions {
     const action = new URL(request.url).pathname.split('/').pop();
     const token = request.headers.get('authorization')?.match(/^Bearer ([a-f0-9]{32})$/)?.[1];
     if (!token) return pairJSON({error: 'Unauthorized'}, 401);
-    const actor = await pairHash(token), body = await request.json(), now = Date.now();
+    const actor = await pairHash(token), body = await request.json();
     const client = request.headers.get('x-pairing-client') || 'unknown';
     if (['create', 'preview', 'approve'].includes(action)) {
       if (!await this.limit(client, action === 'create' ? 'create' : 'guess', action === 'create' ? 10 : 30)) return pairJSON({error: '配對嘗試太頻密，請稍後再試。'}, 429);
     }
-    if (action === 'create') {
-      if (!await this.limit(actor, 'profile-create', 10) || !await this.limit('all', 'global-create', 1000)) return pairJSON({error: '請稍後再產生配對碼。'}, 429);
-      if (!pairHex(body.secret) || body.secret.length !== 64) return pairJSON({error: '配對授權無效。'}, 400);
-      const secretHash = await pairHash(body.secret), existingId = await this.storage.get('owner:' + secretHash);
-      if (existingId) {
-        const existing = await this.storage.get('session:' + existingId);
-        if (existing?.owner === actor && existing.status === 'pending' && existing.expiresAt > now) return pairJSON({sessionId: existing.id, ticket: existing.ticket, code: existing.code, expiresAt: existing.expiresAt, pollAfter: 2});
-      }
-      let code;
-      for (let attempt = 0; attempt < 20; attempt++) {
-        const candidate = pairDigits();
-        if (!await this.storage.get('code:' + candidate)) { code = candidate; break; }
-      }
-      if (!code) return pairJSON({error: '暫時未能產生配對碼，請重試。'}, 503);
-      const id = pairRandom(16), ticket = pairRandom(24);
-      const session = {id, code, owner: actor, secretHash, ticket, ticketHash: await pairHash(ticket), status: 'pending', expiresAt: now + PAIR_TTL};
-      await this.storage.transaction(async tx => {
-        await tx.put('session:' + id, session); await tx.put('code:' + code, id);
-        await tx.put('qr:' + session.ticketHash, id); await tx.put('owner:' + secretHash, id);
-      });
-      await this.scheduleCleanup();
-      return pairJSON({sessionId: id, ticket, code, expiresAt: session.expiresAt, pollAfter: 2}, 201);
-    }
+    if (action === 'create') return this.create(body, actor);
     let id = body.sessionId;
     if (action === 'preview') {
       if (typeof body.ticket === 'string' && /^[a-f0-9]{48}$/.test(body.ticket)) id = await this.storage.get('qr:' + await pairHash(body.ticket));
       else if (typeof body.code === 'string' && /^\d{6}$/.test(body.code)) id = await this.storage.get('code:' + body.code);
       else return pairJSON({error: '請輸入電視／電腦顯示的六位數字。'}, 400);
     }
-    const session = pairHex(id) ? await this.storage.get('session:' + id) : null;
+    if (!pairHex(id)) return pairJSON({error: '配對碼無效或已過期，請在原裝置產生新碼。'}, 410);
+    return this.exclusive(id, () => this.act(action, id, body, actor, token));
+  }
+  async create(body, actor) {
+    const now = Date.now();
+    if (!await this.limit(actor, 'profile-create', 10) || !await this.limit('all', 'global-create', 1000)) return pairJSON({error: '請稍後再產生配對碼。'}, 429);
+    if (!pairHex(body.secret) || body.secret.length !== 64) return pairJSON({error: '配對授權無效。'}, 400);
+    const secretHash = await pairHash(body.secret), existingId = await this.storage.get('owner:' + secretHash);
+    if (existingId) {
+      const existing = await this.storage.get('session:' + existingId);
+      if (existing?.owner === actor && existing.status === 'pending' && existing.expiresAt > now) return pairJSON({sessionId: existing.id, ticket: existing.ticket, code: existing.code, expiresAt: existing.expiresAt, pollAfter: 2});
+    }
+    const id = pairRandom(16), ticket = pairRandom(24), ticketHash = await pairHash(ticket);
+    // Reserve the code in the same transaction that checks it, so two invitations never share digits.
+    const session = await this.storage.transaction(async tx => {
+      for (let attempt = 0; attempt < 20; attempt++) {
+        const code = pairDigits();
+        if (await tx.get('code:' + code)) continue;
+        const created = {id, code, owner: actor, secretHash, ticket, ticketHash, status: 'pending', expiresAt: now + PAIR_TTL};
+        await tx.put('session:' + id, created); await tx.put('code:' + code, id);
+        await tx.put('qr:' + ticketHash, id); await tx.put('owner:' + secretHash, id);
+        return created;
+      }
+      return null;
+    });
+    if (!session) return pairJSON({error: '暫時未能產生配對碼，請重試。'}, 503);
+    await this.scheduleCleanup();
+    return pairJSON({sessionId: id, ticket, code: session.code, expiresAt: session.expiresAt, pollAfter: 2}, 201);
+  }
+  async act(action, id, body, actor, token) {
+    const now = Date.now(), session = await this.storage.get('session:' + id);
     if (!session || now >= (session.deliveryUntil || session.expiresAt)) return pairJSON({error: '配對碼無效或已過期，請在原裝置產生新碼。'}, 410);
     if (action === 'preview') {
       if (session.status !== 'pending') return pairJSON({error: '此配對碼已使用或已取消。'}, 410);
       const confirmation = pairRandom();
       const source = await this.snapshot(session.owner), destination = actor === session.owner ? source : await this.snapshot(actor);
-      session.preview = {actor, hash: await pairHash(confirmation)};
+      session.preview = {actor, hash: await pairHash(confirmation), destinationCount: destination.entries.length};
       await this.storage.put('session:' + id, session);
       return pairJSON({sessionId: id, confirmation, code: session.code, expiresAt: session.expiresAt, sourceCount: source.entries.length, destinationCount: destination.entries.length, alreadyLinked: actor === session.owner});
     }
     if (action === 'approve') {
-      if (session.status === 'approved' && session.approvedBy === actor && pairHex(body.confirmation) && session.preview?.hash === await pairHash(body.confirmation)) return pairJSON({status: 'approved'});
+      if (session.status === 'approved' && session.approvedBy === actor && pairHex(body.confirmation) && session.preview?.hash === await pairHash(body.confirmation)) return pairJSON({status: 'approved', verify: session.verify});
       if (session.status !== 'pending' || !pairHex(body.confirmation) || session.preview?.actor !== actor || session.preview.hash !== await pairHash(body.confirmation)) return pairJSON({error: '確認已失效，請重新輸入配對碼。'}, 409);
-      if (session.owner !== actor) {
+      // Nothing is merged or delivered yet: the requesting screen must also accept, comparing this number with the phone.
+      session.status = 'approved'; session.profile = token; session.approvedBy = actor; session.verify = pairDigits().slice(-2);
+      session.deliveryUntil = now + PAIR_CONFIRM_TTL;
+      await this.storage.put('session:' + id, session); await this.scheduleCleanup();
+      return pairJSON({status: 'approved', verify: session.verify});
+    }
+    if (actor !== session.owner || !pairHex(body.secret) || await pairHash(body.secret) !== session.secretHash) return pairJSON({error: '配對授權無效。'}, 403);
+    if (action === 'status') {
+      if (session.status === 'approved') return pairJSON({status: 'approved', verify: session.verify, destinationCount: session.preview?.destinationCount ?? 0, alreadyLinked: session.approvedBy === session.owner});
+      return pairJSON({status: session.status, expiresAt: session.expiresAt});
+    }
+    if (action === 'accept') {
+      if (session.status === 'accepted') return pairJSON({status: 'accepted', profile: session.profile});
+      if (session.status !== 'approved') return pairJSON({error: '手機尚未確認。'}, 409);
+      if (session.owner !== session.approvedBy) {
         const snapshot = await this.snapshot(session.owner);
-        const merged = await this.stub(actor).fetch(new Request('https://history.internal/pairing-import', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(snapshot)}));
+        const merged = await this.stub(session.approvedBy).fetch(new Request('https://history.internal/pairing-import', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(snapshot)}));
         if (!merged.ok) return pairJSON({error: '未能合併紀錄，未有切換裝置；請重試。'}, 503);
       }
       // Only the requester, authenticated with a separate secret, receives the shared credential.
-      session.status = 'approved'; session.profile = token; session.approvedBy = actor; session.deliveryUntil = Date.now() + PAIR_DELIVERY_TTL;
+      session.status = 'accepted'; session.deliveryUntil = Date.now() + PAIR_DELIVERY_TTL;
       await this.storage.put('session:' + id, session);
-      return pairJSON({status: 'approved'});
+      return pairJSON({status: 'accepted', profile: session.profile});
     }
-    if (actor !== session.owner || !pairHex(body.secret) || await pairHash(body.secret) !== session.secretHash) return pairJSON({error: '配對授權無效。'}, 403);
-    if (action === 'status') return pairJSON(session.status === 'approved' ? {status: 'approved', profile: session.profile} : {status: session.status, expiresAt: session.expiresAt});
-    if (action === 'cancel' && session.status === 'approved') return pairJSON({error: '手機已確認，正在完成連接。'}, 409);
-    if (action === 'ack' && !['approved', 'completed'].includes(session.status)) return pairJSON({error: '配對尚未完成。'}, 409);
+    if (action === 'cancel' && session.status === 'accepted') return pairJSON({error: '已確認連接，正在完成。'}, 409);
+    if (action === 'ack' && !['accepted', 'completed'].includes(session.status)) return pairJSON({error: '配對尚未完成。'}, 409);
     if (action === 'cancel' || action === 'ack') {
       session.status = action === 'ack' ? 'completed' : 'cancelled'; delete session.profile; delete session.preview; delete session.ticket;
       await this.storage.put('session:' + id, session);
@@ -147,29 +170,27 @@ export class PairingSessions {
     return pairJSON({error: 'Not found'}, 404);
   }
   async cleanup() {
-    const run = this.lock.then(async () => {
-      let remaining = false;
-      for (const prefix of ['session:', 'rate:']) {
-        let cursor;
-        for (;;) {
-          const records = await this.storage.list({prefix, limit: 128, ...(cursor ? {startAfter: cursor} : {})});
-          if (!records.size) break;
-          for (const [key, value] of records) {
-            cursor = key;
-            if (Date.now() < (value.deliveryUntil || value.expiresAt)) { remaining = true; continue; }
-            if (prefix === 'session:') {
-              if (await this.storage.get('code:' + value.code) === value.id) await this.storage.delete('code:' + value.code);
-              if (await this.storage.get('qr:' + value.ticketHash) === value.id) await this.storage.delete('qr:' + value.ticketHash);
-              if (await this.storage.get('owner:' + value.secretHash) === value.id) await this.storage.delete('owner:' + value.secretHash);
-            }
-            await this.storage.delete(key);
-          }
-          if (records.size < 128) break;
+    let remaining = false;
+    for (const prefix of ['session:', 'rate:']) {
+      let cursor;
+      for (;;) {
+        const records = await this.storage.list({prefix, limit: 128, ...(cursor ? {startAfter: cursor} : {})});
+        if (!records.size) break;
+        for (const [key, value] of records) {
+          cursor = key;
+          if (Date.now() < (value.deliveryUntil || value.expiresAt)) { remaining = true; continue; }
+          if (prefix === 'rate:') { await this.storage.delete(key); continue; }
+          await this.exclusive(value.id, () => this.storage.transaction(async tx => {
+            const current = await tx.get(key);
+            if (!current || Date.now() < (current.deliveryUntil || current.expiresAt)) { remaining ||= !!current; return; }
+            for (const index of ['code:' + current.code, 'qr:' + current.ticketHash, 'owner:' + current.secretHash]) if (await tx.get(index) === current.id) await tx.delete(index);
+            await tx.delete(key);
+          }));
         }
+        if (records.size < 128) break;
       }
-      if (remaining) await this.storage.setAlarm(Date.now() + 60000);
-    });
-    this.lock = run.catch(() => {}); return run;
+    }
+    if (remaining) await this.storage.setAlarm(Date.now() + 60000);
   }
 }
 // Internal only. The public history route never forwards these paths.

@@ -53,21 +53,31 @@
   async function changeProfile(next){
     if(!/^[a-f0-9]{32}$/.test(next))throw new Error('復原碼無效。');
     emit('anime1:profile-changing');
-    if(!await send())throw new Error('仍有未儲存的紀錄，請連線後重試。');
+    // A failed switch keeps the current profile, so let the stopped player continue.
+    const keep=message=>{emit('anime1:playback-resume');return new Error(message);};
+    if(!await send())throw keep('仍有未儲存的紀錄，請連線後重試。');
     if(pulling)await pulling;
-    if(!write('anime1-profile',next))throw new Error('瀏覽器無法保存連接，請關閉私密模式或允許網站儲存資料。');
+    if(!write('anime1-profile',next))throw keep('瀏覽器無法保存連接，請關閉私密模式或允許網站儲存資料。');
     token=next;entries=read('anime1-history:'+token,{});announce();
     const synced=await refresh();emit('anime1:profile-changed');return synced;
   }
   Object.assign(window.TVState,{
     profile:()=>token,flush:send,changeProfile,
     pauseForPairing:()=>emit('anime1:profile-changing'),
+    resumeAfterPairing:()=>emit('anime1:playback-resume'),
     pairing:(action,data,profile=token)=>fetch('/api/pairing/'+action,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+profile},body:JSON.stringify(data),signal:AbortSignal.timeout(10000)})
   });
   setInterval(()=>{if(!document.hidden)void refresh();},30000);
   window.addEventListener('online',()=>void refresh());
   window.addEventListener('focus',()=>void refresh());
-  window.addEventListener('hashchange',()=>emit('anime1:route'));
-  window.addEventListener('storage',e=>{if(e.key==='anime1-profile'){const next=read(e.key,null);if(next!==token&&/^[a-f0-9]{32}$/.test(next||''))void changeProfile(next).catch(()=>syncStatus('裝置連接已變更，請重新整理。'));}if(e.key==='anime1-history:'+token){entries=read(e.key,{});emit('anime1:history-updated');}});
+  window.addEventListener('hashchange',()=>{if(!route().has('pair'))emit('anime1:route');});
+  // Another tab switched profile: follow it, retrying until this tab's pending progress has uploaded.
+  let following=null;
+  function follow(){
+    const next=read('anime1-profile',null);clearTimeout(following);following=null;
+    if(next===token||!/^[a-f0-9]{32}$/.test(next||''))return;
+    void changeProfile(next).catch(()=>{syncStatus('裝置連接已變更，連線恢復後會自動切換。');following=setTimeout(follow,15000);});
+  }
+  window.addEventListener('storage',e=>{if(e.key==='anime1-profile')follow();if(e.key==='anime1-history:'+token){entries=read(e.key,{});emit('anime1:history-updated');}});
   void refresh();
 })();

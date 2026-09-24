@@ -64,7 +64,7 @@ Refresh and browser Back/Forward preserve catalogue filters, search results, ani
 
 All history records (episode, series, position, duration, completion and update revision) persist in **SQLite-backed Cloudflare Durable Objects**, using the transactional storage API. `wrangler.jsonc` creates the `WatchHistory` class with a `new_sqlite_classes` migration and binds `WATCH_HISTORY` on deployment. No ChatGPT account, external auth provider or manually created database ID is required.
 
-Open **裝置同步** on the TV/desktop to display a QR code and a temporary six-digit code. Scan using the phone camera, or open **裝置同步 → 連接電視／電腦** on the phone and enter the digits. Verify the matching code and explicitly confirm **連接並保留兩邊紀錄**. The TV connects automatically without opening its keyboard. Codes expire after five minutes; an established connection does not expire with its invitation.
+Open **裝置同步 → 顯示 QR Code** on the TV/desktop to display a QR code and a temporary six-digit code. Scan using the phone camera, or open **裝置同步 → 連接電視／電腦** on the phone and enter the digits. Verify the matching code and explicitly confirm **連接並保留兩邊紀錄**. The TV then shows a two-digit check number; press **數字相同，連接** if it matches the phone. No keyboard is needed on the TV, and nothing is merged until the TV accepts. Codes expire after five minutes; an established connection does not expire with its invitation.
 
 Pair the office computer with the phone once; later pair the home TV with that same phone/browser. The office computer can be switched off. Subsequent visits use the persistent shared cloud profile automatically. Existing Watch History and episode resume behavior remain available.
 

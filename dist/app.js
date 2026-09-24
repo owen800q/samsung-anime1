@@ -169,7 +169,7 @@
   document.addEventListener('visibilitychange',()=>{if(document.hidden)saveProgress();else void S.refresh();});
   document.addEventListener('anime1:history-updated',markEpisode);
   document.addEventListener('anime1:profile-changing',()=>{stop();lastRecorded='';});
-  document.addEventListener('anime1:profile-changed',()=>{if(playback&&!$('watch-player').hidden)void prepare(playback.url,false,{seriesId:playback.seriesId,route:false});});
+  for(const name of ['anime1:profile-changed','anime1:playback-resume'])document.addEventListener(name,()=>{if(playback&&!$('watch-player').hidden)void prepare(playback.url,false,{seriesId:playback.seriesId,route:false});});
   document.addEventListener('keydown', e => {
     const current = document.activeElement;
     if (current?.matches('input,textarea,select')) return;

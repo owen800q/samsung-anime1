@@ -6,7 +6,7 @@
   const persist = value => { try { if (value) sessionStorage.setItem('anime1-pairing', JSON.stringify(value)); else sessionStorage.removeItem('anime1-pairing'); } catch {} };
   const random = () => [...crypto.getRandomValues(new Uint8Array(32))].map(x => x.toString(16).padStart(2, '0')).join('');
   const format = value => value.slice(0, 3) + ' ' + value.slice(3);
-  let session = null, confirmation = null, timer = null, clock = null, revision = 0, busy = false, restoreFocus = null, closeTimer = null;
+  let session = null, confirmation = null, timer = null, clock = null, revision = 0, busy = false, restoreFocus = null, closeTimer = null, paused = false;
   const notice = text => { $('pair-notice').textContent = text; $('pair-notice').hidden = !text; };
   const error = text => { $('pair-error').textContent = text; $('pair-error').hidden = !text; };
   async function call(action, data, profile) {
@@ -17,15 +17,18 @@
     return result;
   }
   function show(view) {
-    for (const name of ['home', 'wait', 'input', 'confirm', 'done']) $('pair-' + name).hidden = name !== view;
+    for (const name of ['home', 'wait', 'accept', 'input', 'confirm', 'done']) $('pair-' + name).hidden = name !== view;
     $('sync-advanced').hidden = view !== 'home'; error('');
   }
   function controls(disabled) {
     busy = disabled;
-    for (const id of ['pair-create', 'pair-enter', 'pair-submit', 'pair-approve', 'pair-renew', 'sync-restore', 'pair-confirm-back', 'pair-input-back', 'pair-options']) $(id).disabled = disabled;
+    for (const id of ['pair-create', 'pair-enter', 'pair-submit', 'pair-approve', 'pair-renew', 'sync-restore', 'pair-confirm-back', 'pair-input-back', 'pair-options', 'pair-accept-yes', 'pair-accept-no']) $(id).disabled = disabled;
     $('pair-approve').disabled = disabled || !$('pair-match').checked;
     panel.setAttribute('aria-busy', String(disabled));
   }
+  // Playback stops only while this device is offering itself for pairing, and resumes if nothing changed.
+  function pause() { if (!paused) { paused = true; S.pauseForPairing(); } }
+  function resume() { if (paused) { paused = false; S.resumeAfterPairing(); } }
   function clearTimers() { clearTimeout(timer); clearInterval(clock); timer = clock = null; }
   function rememberConnection() {
     try { localStorage.setItem('anime1-paired-at', String(Date.now())); } catch {}
@@ -33,7 +36,7 @@
   }
   function open() {
     clearTimeout(closeTimer);
-    if (panel.hidden) { restoreFocus = document.activeElement; S.pauseForPairing(); }
+    if (panel.hidden) restoreFocus = document.activeElement;
     panel.hidden = false; document.body.classList.add('pairing-open');
     $('sync-toggle').setAttribute('aria-expanded', 'true');
     $('sync-code').value = S.profile().match(/.{1,4}/g).join('-');
@@ -48,7 +51,7 @@
     }
     revision++; clearTimers(); session = null; confirmation = null; persist(null);
     panel.hidden = true; document.body.classList.remove('pairing-open');
-    $('sync-toggle').setAttribute('aria-expanded', 'false');
+    $('sync-toggle').setAttribute('aria-expanded', 'false'); resume();
     if (restoreFocus?.isConnected && !restoreFocus.closest('[hidden]')) restoreFocus.focus({preventScroll: true});
     else $('sync-toggle').focus({preventScroll: true});
   }
@@ -62,15 +65,11 @@
     try {
       const result = await call('status', {sessionId: current.sessionId, secret: current.secret}, current.owner);
       if (generation !== revision || current !== session) return;
+      if (result.status === 'accepted') { await finish(current, generation); return; }
       if (result.status === 'approved') {
-        clearTimers(); controls(true); $('pair-wait-status').textContent = '手機已確認，正在合併並載入觀看紀錄…';
-        const synced = await S.changeProfile(result.profile);
-        try { await call('ack', {sessionId: current.sessionId, secret: current.secret}, current.owner); } catch {}
-        if (generation !== revision) return;
-        persist(null); session = null; rememberConnection(); controls(false);
-        const message = synced ? '已連接，觀看進度已同步。' : '已連接；網絡恢復後會自動載入觀看進度。';
-        show('done'); $('pair-done-text').textContent = message; notice(message);
-        closeTimer = setTimeout(() => void close(), 1400); return;
+        clearTimers(); show('accept'); $('pair-verify').textContent = result.verify;
+        $('pair-accept-counts').textContent = result.alreadyLinked ? '兩部裝置已經使用相同的觀看紀錄。' : '手機現有 ' + result.destinationCount + ' 集紀錄。';
+        $('pair-accept-yes').focus({preventScroll: true}); return;
       }
       if (result.status !== 'pending') throw Object.assign(new Error('配對已取消或已使用，請產生新碼。'), {status: 410});
       error(''); $('pair-wait-status').textContent = '等待手機確認…';
@@ -83,6 +82,37 @@
         error(e.message); $('pair-qr').hidden = true; $('pair-renew').hidden = false; $('pair-renew').focus();
       } else { error('連線暫時中斷，正在重試；觀看紀錄未有刪除。'); timer = setTimeout(() => void poll(current, generation), 5000); }
     }
+  }
+  async function finish(current, generation) {
+    clearTimers(); controls(true); $('pair-wait-status').textContent = '正在合併並載入觀看紀錄…';
+    const result = await call('accept', {sessionId: current.sessionId, secret: current.secret}, current.owner);
+    if (generation !== revision || current !== session) { controls(false); return; }
+    const synced = await S.changeProfile(result.profile); paused = false;
+    try { await call('ack', {sessionId: current.sessionId, secret: current.secret}, current.owner); } catch {}
+    if (generation !== revision) return;
+    persist(null); session = null; rememberConnection(); controls(false);
+    const message = synced ? '已連接，觀看進度已同步。' : '已連接；網絡恢復後會自動載入觀看進度。';
+    show('done'); $('pair-done-verify').hidden = true; $('pair-done-text').textContent = message; notice(message);
+    closeTimer = setTimeout(() => void close(), 1400);
+  }
+  async function accept() {
+    const current = session, generation = revision;
+    if (busy || !current) return;
+    try { await finish(current, generation); }
+    catch (e) {
+      if (generation !== revision || current !== session) return;
+      controls(false); show('wait');
+      if (e.status === 410 || e.status === 403) { clearTimers(); persist(null); session = null; error(e.message); $('pair-qr').hidden = true; $('pair-renew').hidden = false; $('pair-renew').focus(); }
+      else { error(e.message || '連接未完成，請重試。'); void poll(current, generation); }
+    }
+  }
+  async function reject() {
+    if (busy || !session) return;
+    const current = session; controls(true);
+    try { await call('cancel', {sessionId: current.sessionId, secret: current.secret}, current.owner); }
+    catch (e) { if (e.status !== 410) { error(e.message); controls(false); return; } }
+    revision++; clearTimers(); persist(null); session = null; controls(false);
+    show('home'); notice('已拒絕連接。如需要，請產生新配對碼再試。'); $('pair-create').focus();
   }
   function displaySession(current) {
     session = current; persist(current); show('wait'); $('pair-qr').hidden = false; $('pair-renew').hidden = true;
@@ -99,7 +129,7 @@
     const generation = ++revision; clearTimers(); controls(true); error('');
     try {
       if (session) { await call('cancel', {sessionId: session.sessionId, secret: session.secret}, session.owner); session = null; persist(null); }
-      S.pauseForPairing();
+      pause();
       if (!await S.flush()) throw new Error('此裝置仍有未儲存的觀看進度。請恢復網絡後再連接，避免遺失紀錄。');
       const secret = random(), owner = S.profile(), result = await call('create', {secret});
       if (generation !== revision) return;
@@ -126,16 +156,16 @@
     controls(true); error('');
     try {
       if (!await S.flush()) throw new Error('仍有未儲存的進度，請連線後重試。');
-      await call('approve', {sessionId: confirmation.sessionId, confirmation: confirmation.confirmation});
-      await S.refresh(); show('done');
-      $('pair-done-text').textContent = '已確認並保留觀看紀錄。請查看電視／電腦的連接結果；完成後便可在不同時間接續觀看。';
+      const result = await call('approve', {sessionId: confirmation.sessionId, confirmation: confirmation.confirmation});
+      show('done'); $('pair-done-verify').textContent = result.verify; $('pair-done-verify').hidden = false;
+      $('pair-done-text').textContent = '請在電視／電腦核對這個數字並選擇連接。連接後觀看紀錄會合併，之後便可在不同時間接續觀看。';
       $('pair-done').querySelector('button').focus(); confirmation = null;
     } catch (e) { error(e.message || '連接未完成，請重試。'); }
     finally { controls(false); }
   }
   $('sync-toggle').addEventListener('click', () => {
     if (!panel.hidden) { void close(); return; }
-    open(); show('home'); if (matchMedia('(min-width:1051px)').matches) void create();
+    open(); show('home'); if (matchMedia('(min-width:1051px)').matches) $('pair-create').focus({preventScroll: true});
   });
   for (const id of ['pair-close', 'pair-cancel', 'pair-finish']) $(id).addEventListener('click', () => void close());
   $('pair-create').addEventListener('click', () => void create());
@@ -145,6 +175,8 @@
     catch (e) { error(e.message); } finally { controls(false); }
   });
   $('pair-renew').addEventListener('click', () => void create());
+  $('pair-accept-yes').addEventListener('click', () => void accept());
+  $('pair-accept-no').addEventListener('click', () => void reject());
   $('pair-enter').addEventListener('click', () => { show('input'); $('pair-code-input').focus(); });
   $('pair-input-back').addEventListener('click', () => { show('home'); $('pair-enter').focus(); });
   $('pair-confirm-back').addEventListener('click', () => { confirmation = null; show('input'); $('pair-code-input').focus(); });

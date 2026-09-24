@@ -9,6 +9,7 @@ function api(env, action, data, token=A, headers={}) {
 }
 const json=async response=>(await response).json();
 const create=env=>json(api(env,'create',{secret}));
+const accept=(env,s)=>api(env,'accept',{sessionId:s.sessionId,secret});
 async function seed(env,token,entries,settings=[]) {
   const store=env.WATCH_HISTORY.get(await profileName(token)).storage;
   for(const entry of entries)await store.put('ep:'+entry.episodeId,entry);
@@ -54,8 +55,12 @@ test('short code pairing merges both histories by latest save, not furthest posi
   const s=await create(env),p=await json(api(env,'preview',{code:s.code},B));
   assert.equal(p.sourceCount,2);assert.equal(p.destinationCount,2);
   const approve={sessionId:s.sessionId,confirmation:p.confirmation};
-  assert.deepEqual(await json(api(env,'approve',approve,B)),{status:'approved'});
-  assert.equal((await api(env,'approve',approve,B)).status,200);
+  const approved=await json(api(env,'approve',approve,B));
+  assert.equal(approved.status,'approved');assert.match(approved.verify,/^\d{2}$/);
+  assert.deepEqual(await json(api(env,'approve',approve,B)),approved);
+  assert.equal((await destination.get('index')).length,2);
+  assert.deepEqual(await json(api(env,'status',{sessionId:s.sessionId,secret})),{status:'approved',verify:approved.verify,destinationCount:2,alreadyLinked:false});
+  assert.equal((await accept(env,s)).status,200);
   assert.equal((await destination.get('index')).length,3);
   assert.equal((await destination.get('ep:29599')).position,20);
   assert.equal((await destination.get('ep:29605')).updatedAt,now-1000);
@@ -63,7 +68,9 @@ test('short code pairing merges both histories by latest save, not furthest posi
   assert.equal((await oldSource.get('ep:29599')).position,1000);
   assert.equal((await api(env,'status',{sessionId:s.sessionId,secret:'e'.repeat(64)})).status,403);
   assert.equal((await api(env,'status',{sessionId:s.sessionId,secret},B)).status,403);
-  assert.equal((await json(api(env,'status',{sessionId:s.sessionId,secret}))).profile,B);
+  assert.equal((await api(env,'accept',{sessionId:s.sessionId,secret},B)).status,403);
+  assert.equal((await json(accept(env,s))).profile,B);
+  assert.equal((await json(api(env,'status',{sessionId:s.sessionId,secret}))).profile,undefined);
   assert.equal((await api(env,'cancel',{sessionId:s.sessionId,secret})).status,409);
   assert.equal((await api(env,'ack',{sessionId:s.sessionId,secret})).status,200);
   assert.equal((await json(api(env,'status',{sessionId:s.sessionId,secret}))).profile,undefined);
@@ -91,12 +98,12 @@ test('concurrent confirmations cannot swap the approved destination twice',async
   const p1=await json(api(env,'preview',{code:s.code},B)),p2=await json(api(env,'preview',{code:s.code},C));
   const results=await Promise.all([api(env,'approve',{sessionId:s.sessionId,confirmation:p1.confirmation},B),api(env,'approve',{sessionId:s.sessionId,confirmation:p2.confirmation},C)]);
   assert.deepEqual(results.map(x=>x.status),[409,200]);
-  assert.equal((await json(api(env,'status',{sessionId:s.sessionId,secret}))).profile,C);
+  assert.equal((await json(accept(env,s))).profile,C);
 });
 test('alarm cleanup removes session secrets and indexes but pairing expiry does not expire history',async()=>{
   const {env,stores}=makeEnv();await seed(env,A,[progress()]);
   const s=await create(env),p=await json(api(env,'preview',{code:s.code},B));
-  await api(env,'approve',{sessionId:s.sessionId,confirmation:p.confirmation},B);
+  await api(env,'approve',{sessionId:s.sessionId,confirmation:p.confirmation},B);await accept(env,s);
   const store=stores.get('pairing:v1'),session=await store.get('session:'+s.sessionId);
   session.deliveryUntil=Date.now()-1;await store.put('session:'+s.sessionId,session);
   await env.WATCH_HISTORY.get('pairing:v1').alarm();
@@ -111,22 +118,55 @@ test('same-profile pairing is harmless and still requires confirmation',async()=
   const {env}=makeEnv();await seed(env,A,[progress()]);
   const s=await create(env),p=await json(api(env,'preview',{code:s.code},A));assert.equal(p.alreadyLinked,true);
   await api(env,'approve',{sessionId:s.sessionId,confirmation:p.confirmation},A);
-  assert.equal((await json(api(env,'status',{sessionId:s.sessionId,secret}))).profile,A);
+  assert.equal((await json(api(env,'status',{sessionId:s.sessionId,secret}))).alreadyLinked,true);
+  assert.equal((await json(accept(env,s))).profile,A);
 });
-test('a failed import leaves the invitation pending and does not deliver a profile',async()=>{
+test('a failed import leaves the invitation awaiting acceptance and does not deliver a profile',async()=>{
   const {env}=makeEnv();const s=await create(env),p=await json(api(env,'preview',{code:s.code},B));
   const target=env.WATCH_HISTORY.get(await profileName(B)),original=target.fetch.bind(target);
   target.fetch=request=>new URL(request.url).pathname==='/pairing-import'?Response.json({error:'fixture'},{status:503}):original(request);
-  assert.equal((await api(env,'approve',{sessionId:s.sessionId,confirmation:p.confirmation},B)).status,503);
-  assert.equal((await json(api(env,'status',{sessionId:s.sessionId,secret}))).status,'pending');
+  assert.equal((await api(env,'approve',{sessionId:s.sessionId,confirmation:p.confirmation},B)).status,200);
+  assert.equal((await accept(env,s)).status,503);
+  assert.equal((await json(api(env,'status',{sessionId:s.sessionId,secret}))).status,'approved');
 });
 test('merge retains the 500 newest episodes without re-dating old entries',async()=>{
   const {env}=makeEnv(),now=Date.now();
   await seed(env,A,Array.from({length:300},(_,i)=>progress(String(i+1),20,now-100000+i)));
   const target=await seed(env,B,Array.from({length:300},(_,i)=>progress(String(i+301),30,now-1000+i)));
   const s=await create(env),p=await json(api(env,'preview',{code:s.code},B));
-  await api(env,'approve',{sessionId:s.sessionId,confirmation:p.confirmation},B);
+  await api(env,'approve',{sessionId:s.sessionId,confirmation:p.confirmation},B);await accept(env,s);
   assert.equal((await target.get('index')).length,500);
   assert.equal(await target.get('ep:1'),undefined);
   assert.equal((await target.get('ep:101')).updatedAt,now-99900);
+});
+test('a guessed code approved by a stranger reads nothing until the requesting screen accepts, and can be rejected',async()=>{
+  const {env}=makeEnv();await seed(env,A,[progress()]);const intruder=await seed(env,C,[]);
+  const s=await create(env),p=await json(api(env,'preview',{code:s.code},C));
+  assert.equal((await api(env,'accept',{sessionId:s.sessionId,secret})).status,409);
+  await api(env,'approve',{sessionId:s.sessionId,confirmation:p.confirmation},C);
+  assert.equal((await intruder.get('index')).length,0);
+  assert.equal((await api(env,'accept',{sessionId:s.sessionId,secret},C)).status,403);
+  assert.deepEqual(await json(api(env,'cancel',{sessionId:s.sessionId,secret})),{status:'cancelled'});
+  assert.equal((await accept(env,s)).status,409);
+  assert.equal((await intruder.get('index')).length,0);
+  assert.equal((await api(env,'preview',{code:s.code},B)).status,410);
+});
+test('an unaccepted approval expires instead of waiting indefinitely',async()=>{
+  const {env,stores}=makeEnv();const s=await create(env),p=await json(api(env,'preview',{code:s.code},B));
+  await api(env,'approve',{sessionId:s.sessionId,confirmation:p.confirmation},B);
+  const store=stores.get('pairing:v1'),session=await store.get('session:'+s.sessionId);
+  assert.ok(session.deliveryUntil>Date.now()+60000&&session.deliveryUntil<=Date.now()+120000);
+  session.deliveryUntil=Date.now()-1;await store.put('session:'+s.sessionId,session);
+  assert.equal((await accept(env,s)).status,410);
+});
+test('a slow merge on one invitation does not block other invitations',async()=>{
+  const {env}=makeEnv();const s=await create(env),p=await json(api(env,'preview',{code:s.code},B));
+  await api(env,'approve',{sessionId:s.sessionId,confirmation:p.confirmation},B);
+  const target=env.WATCH_HISTORY.get(await profileName(B)),original=target.fetch.bind(target);let release,reached;
+  const importing=new Promise(resolve=>{reached=resolve;}),gate=new Promise(resolve=>{release=resolve;});
+  target.fetch=async request=>{if(new URL(request.url).pathname==='/pairing-import'){reached();await gate;}return original(request);};
+  const slow=accept(env,s);await importing;
+  const other=await api(env,'create',{secret:'e'.repeat(64)},C);
+  assert.equal(other.status,201);
+  release();assert.equal((await json(slow)).profile,B);
 });
