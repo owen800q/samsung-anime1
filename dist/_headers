@@ -21,3 +21,10 @@
 
 /player.js
   Cache-Control: public, max-age=0, must-revalidate
+
+/pairing.js
+  Cache-Control: public, max-age=0, must-revalidate
+/pairing.css
+  Cache-Control: public, max-age=0, must-revalidate
+/vendor/qrcode.js
+  Cache-Control: public, max-age=0, must-revalidate

@@ -50,8 +50,8 @@ try{
  await a.waitForFunction(()=>window.TVState.get('29599')?.dirty===false);
  const token=await a.evaluate(()=>JSON.parse(localStorage.getItem('anime1-profile')));
  assert.equal(sql.prepare("SELECT COUNT(*) n FROM records WHERE k='ep:29599'").get().n,1);
- const b=await device();await b.goto(base);await b.locator('#sync-toggle').click();await b.locator('#sync-input').fill(token);await b.locator('#sync-form').evaluate(f=>f.requestSubmit());await b.waitForFunction(()=>window.TVState.get('29599')?.position===234);
- await b.locator('#sync-toggle').click();await b.locator('[data-preset=history]').click();await b.locator('.history-row').waitFor();assert.match(await b.locator('.history-row').textContent(),/3:54/);
+ const b=await device();await b.goto(base);await b.locator('#sync-toggle').click();await b.locator('#pair-home').waitFor();await b.locator('#sync-advanced').evaluate(el=>el.open=true);await b.locator('#sync-restore-confirm').check();await b.locator('#sync-input').fill(token);await b.locator('#sync-form').evaluate(f=>f.requestSubmit());await b.waitForFunction(()=>window.TVState.get('29599')?.position===234);
+ await b.locator('#pair-close').click();await b.locator('[data-preset=history]').click();await b.locator('.history-row').waitFor();assert.match(await b.locator('.history-row').textContent(),/3:54/);
  await b.locator('.history-row button').click();await b.waitForFunction(()=>document.getElementById('video').currentTime===234);await b.reload();await b.waitForFunction(()=>document.getElementById('video').currentTime===234);
  await b.locator('.episode-button').nth(1).click();await b.waitForFunction(()=>!document.getElementById('play').disabled);await b.locator('#play').click();await b.evaluate(()=>{const v=document.getElementById('video');v.currentTime=600;v.dispatchEvent(new Event('seeked'));v.pause();});await b.waitForFunction(()=>window.TVState.get('29605')?.dirty===false);
  await a.evaluate(()=>window.TVState.refresh());assert.equal(await a.evaluate(()=>window.TVState.get('29605').position),600);assert.equal(await a.evaluate(()=>window.TVState.get('29599').position),234);
