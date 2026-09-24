@@ -242,3 +242,10 @@ test('Jev decides confidently, gets season facts precomputed, and falls back to 
   calls=[];jevAnswer={choice:'spring',confidence:0.3,p:0.5};
   assert.equal(await chooseTitle(rezero,cours,{JEV_API_KEY:'jev-test'}),null);assert.deepEqual(calls,['jev'],'Jev alone never guesses');
 });
+test('Jev 429 is retried with backoff before falling back',async t=>{
+  let jev=0;
+  t.mock.method(globalThis,'fetch',async url=>{jev++;return jev===1?Response.json({code:-1,message:'Too many requests.'},{status:429}):Response.json({code:0,data:{answers:{match:{type:'choice',choice:'c0',confidence:0.95,probabilities:{c0:0.97}}}}});});
+  const started=Date.now();
+  assert.equal(await chooseTitle(item,candidates,{JEV_API_KEY:'jev-test'}),candidates[1]);
+  assert.equal(jev,2);assert.ok(Date.now()-started>=1400,'waits before retrying');
+});

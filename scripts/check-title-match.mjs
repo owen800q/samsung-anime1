@@ -1,5 +1,5 @@
 // Live check of automatic title matching against the real upstreams (Bangumi, 動畫瘋, LLM gateway).
-// Usage: [JEV_API_KEY=...] [TITLE_MATCH_LLM_API_KEY=...] node scripts/check-title-match.mjs [--since=2025] [--limit=40] [id ...]
+// Usage: [JEV_API_KEY=...] [TITLE_MATCH_LLM_API_KEY=...] node scripts/check-title-match.mjs [--since=2025] [--limit=40] [--delay=ms] [id ...]
 // Without keys the model step is skipped and each title reports whether it matched deterministically.
 import { CATALOG_SEED } from '../src/catalog-data.js';
 import { catalogueItem } from '../src/catalog.js';
@@ -24,6 +24,8 @@ const how=scope=>{
 const totals={};
 console.log('Jev: '+(jev?'live':'off')+' · LLM gateway: '+(key?'live':'offline (skipped)'));
 for(const entry of items){
+  // Pace requests: jevai.org rate-limits bursts.
+  if(entry!==items[0])await new Promise(r=>setTimeout(r,Number(opt('delay',0))));
   logs=[];
   let bgm='-',dm='-';
   try{const {item}=await catalogueItem(String(entry.id),env);bgm=item.bgmId?'bgm '+item.bgmId+' '+(item.aliases.find(x=>/\p{Script=Han}/u.test(x))||item.aliases[0]||''):'no bgm';
