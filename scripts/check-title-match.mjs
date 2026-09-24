@@ -1,5 +1,5 @@
 // Live check of automatic title matching against the real upstreams (Bangumi, 動畫瘋, LLM gateway).
-// Usage: [JEV_API_KEY=...] [TITLE_MATCH_LLM_API_KEY=...] node scripts/check-title-match.mjs [--since=2025] [--limit=40] [--delay=ms] [id ...]
+// Usage: [JEV_API_KEY=...] [JEV_COOKIE=...] [TITLE_MATCH_LLM_API_KEY=...] node scripts/check-title-match.mjs [--since=2025] [--limit=40] [--delay=ms] [id ...]
 // Without keys the model step is skipped and each title reports whether it matched deterministically.
 import { CATALOG_SEED } from '../src/catalog-data.js';
 import { catalogueItem } from '../src/catalog.js';
@@ -9,8 +9,8 @@ import { titleMatchCached } from '../src/title-match.js';
 const args=process.argv.slice(2);
 const opt=(name,fallback)=>args.find(x=>x.startsWith('--'+name+'='))?.split('=')[1]??fallback;
 const ids=args.filter(x=>/^\d+$/.test(x)).map(Number);
-const key=process.env.TITLE_MATCH_LLM_API_KEY,jev=process.env.JEV_API_KEY;
-const env={TITLE_MATCH_LLM_API_KEY:key||'offline',...(jev?{JEV_API_KEY:jev}:{})};
+const key=process.env.TITLE_MATCH_LLM_API_KEY,jev=process.env.JEV_API_KEY,jevCookie=process.env.JEV_COOKIE;
+const env={TITLE_MATCH_LLM_API_KEY:key||'offline',...(jev?{JEV_API_KEY:jev}:{}),...(jevCookie?{JEV_COOKIE:jevCookie}:{})};
 const realFetch=globalThis.fetch;
 if(!key)globalThis.fetch=(url,init)=>String(url).includes('/v1/chat/completions')?Promise.resolve(new Response('{}',{status:401})):realFetch(url,init);
 
@@ -22,7 +22,7 @@ const how=scope=>{
   return pick?.stage==='selection'?pick.reason:pick?.stage==='llm_result'?'llm_'+pick.reason:pick?.stage==='llm_error'?(key?'llm_'+pick.reason:'needs_llm'):own.at(-1)?.reason||'-';
 };
 const totals={};
-console.log('Jev: '+(jev?'live':'off')+' · LLM gateway: '+(key?'live':'offline (skipped)'));
+console.log('Jev: '+(jev||jevCookie?'live':'off')+' · LLM gateway: '+(key?'live':'offline (skipped)'));
 for(const entry of items){
   // Pace requests: jevai.org rate-limits bursts.
   if(entry!==items[0])await new Promise(r=>setTimeout(r,Number(opt('delay',0))));
