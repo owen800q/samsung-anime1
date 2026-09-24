@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { chooseTitle, titleQueries, titleMatchCached, LLM_TIMEOUT_MS, monthOf, pickEpisodes } from '../src/title-match.js';
 import { fallbackDanmaku } from '../src/danmaku-server.js';
+import { parseJevCookie, buildJevCookie, jevSessionCookie } from '../src/jev-session.js';
 const item={id:1921,title:'無職轉生III～到了異世界就拿出真本事～ (第三季)',year:'2026',season:'夏'};
 const candidates=[{id:1,title:'無職轉生 第二季',year:'2023'},{id:2,title:'無職轉生 ～到了異世界就拿出真本事～第三季',year:'2026'}];
 const env={TITLE_MATCH_LLM_API_KEY:'test-token'};
@@ -220,11 +221,12 @@ test('Jev decides confidently, gets season facts precomputed, and falls back to 
   const both={JEV_API_KEY:'jev-test',TITLE_MATCH_LLM_API_KEY:'test-token'};
   let jevAnswer,calls=[];
   t.mock.method(globalThis,'fetch',async(url,init)=>{
+    if(url==='https://jevplayground.com/api/evaluate'){calls.push('jevplayground');return new Response('busy',{status:503});}
     if(url==='https://www.jevai.org/api/v1/decisions'){calls.push('jev');
       assert.equal(init.headers.Authorization,'Bearer jev-test');assert.equal(init.redirect,'manual');
       const body=JSON.parse(init.body),criteria=body.questions.match.criteria;
-      assert.equal(body.questions.match.type,'choice');assert.ok('none' in criteria);
-      const byTitle=Object.fromEntries(Object.entries(criteria).filter(([k])=>k!=='none').map(([k,v])=>[v.title,[k,v.airs_in_source_season]]));
+      assert.equal(body.questions.match.type,'choice');assert.ok('no_match' in criteria);
+      const byTitle=Object.fromEntries(Object.entries(criteria).filter(([k])=>k!=='no_match').map(([k,v])=>[v.title,[k,v.airs_in_source_season]]));
       assert.equal(byTitle[cours[1].title][1],true);assert.equal(byTitle[cours[0].title][1],false,'season comparison is done in code');
       if(jevAnswer instanceof Response)return jevAnswer;
       const choice=jevAnswer.choice==='spring'?byTitle[cours[1].title][0]:jevAnswer.choice;
@@ -233,19 +235,82 @@ test('Jev decides confidently, gets season facts precomputed, and falls back to 
   });
   jevAnswer={choice:'spring',confidence:0.9,p:0.95};
   assert.equal((await chooseTitle(rezero,cours,both)).id,547888);assert.deepEqual(calls,['jev']);
-  calls=[];jevAnswer={choice:'none',confidence:0.9,p:0.95};
-  assert.equal(await chooseTitle(rezero,cours,both),null);assert.deepEqual(calls,['jev'],'a confident none is final');
+  calls=[];jevAnswer={choice:'no_match',confidence:0.9,p:0.95};
+  assert.equal(await chooseTitle(rezero,cours,both),null);assert.deepEqual(calls,['jev'],'a confident no_match is final');
   calls=[];jevAnswer={choice:'spring',confidence:0.3,p:0.5};
-  assert.ok(await chooseTitle(rezero,cours,both));assert.deepEqual(calls,['jev','gateway'],'low confidence asks the gateway');
+  assert.ok(await chooseTitle(rezero,cours,both));assert.deepEqual(calls,['jev','gateway'],'low confidence asks the gateway, not another Jev host');
   calls=[];jevAnswer=new Response('no',{status:401});
-  assert.ok(await chooseTitle(rezero,cours,both));assert.deepEqual(calls,['jev','gateway'],'a Jev failure asks the gateway');
+  assert.ok(await chooseTitle(rezero,cours,both));assert.deepEqual(calls,['jev','jevplayground','gateway'],'failing Jev hosts fall through to the gateway');
   calls=[];jevAnswer={choice:'spring',confidence:0.3,p:0.5};
   assert.equal(await chooseTitle(rezero,cours,{JEV_API_KEY:'jev-test'}),null);assert.deepEqual(calls,['jev'],'Jev alone never guesses');
 });
-test('Jev 429 is retried with backoff before falling back',async t=>{
-  let jev=0;
-  t.mock.method(globalThis,'fetch',async url=>{jev++;return jev===1?Response.json({code:-1,message:'Too many requests.'},{status:429}):Response.json({code:0,data:{answers:{match:{type:'choice',choice:'c0',confidence:0.95,probabilities:{c0:0.97}}}}});});
-  const started=Date.now();
-  assert.equal(await chooseTitle(item,candidates,{JEV_API_KEY:'jev-test'}),candidates[1]);
-  assert.equal(jev,2);assert.ok(Date.now()-started>=1400,'waits before retrying');
+const jevSessionFixture=(expiresAt,marker)=>{
+  const session={access_token:'access-'+marker,refresh_token:'refresh-'+marker,expires_at:expiresAt,token_type:'bearer',user:{id:'u',padding:'x'.repeat(4000)}};
+  return {session,cookie:'other=1; '+buildJevCookie({session})};
+};
+test('Jev falls through API -> signed-in playground -> public playground, credentials stay on their own host',async t=>{
+  const {cookie}=jevSessionFixture(Math.floor(Date.now()/1000)+3600,'chain');
+  const seen=[];
+  t.mock.method(globalThis,'fetch',async(url,init)=>{
+    seen.push(url);
+    if(url==='https://www.jevai.org/api/v1/decisions'){assert.equal(init.headers.Cookie,undefined);return Response.json({code:-1,message:'Too many requests.'},{status:429});}
+    if(url==='https://www.jevai.org/api/playground'){
+      assert.equal(init.headers.Authorization,undefined);assert.match(init.headers.Cookie,/sb-sebhokoocyhjlqqiykbp-auth-token\.0=base64-/);assert.match(init.headers.Cookie,/other=1/);
+      assert.equal(JSON.parse(init.body).model,undefined,'the playground takes no model field');
+      return Response.json({error:'Too many requests'},{status:429});}
+    if(url==='https://jevplayground.com/api/evaluate'){
+      assert.equal(init.headers.Authorization,undefined);assert.equal(init.headers.Cookie,undefined,'no credentials reach the public playground');
+      assert.equal(init.headers.Origin,'https://jevplayground.com');
+      const body=JSON.parse(init.body),criteria=body.questions.match.criteria;
+      assert.equal(typeof body.state,'string','text state only');
+      assert.ok(Object.values(criteria).every(x=>typeof x==='string'),'string descriptions only');
+      assert.ok(Object.keys(criteria).length<=10,'at most 10 options');
+      const pick=Object.entries(criteria).find(([,v])=>v.includes(candidates[1].title))[0];
+      return Response.json({ok:true,model:'typesafe-ai/jev',latencyMs:240,result:{answers:{match:{type:'choice',choice:pick,probabilities:{[pick]:0.97}}},confidence:{match:0.95},warnings:[]}});}
+    throw new Error('unexpected '+url);
+  });
+  const many=[...candidates,...Array.from({length:15},(_,i)=>({id:100+i,title:'unrelated '+i,year:'2026'}))];
+  assert.equal(await chooseTitle(item,many,{JEV_API_KEY:'jev-test',JEV_COOKIE:cookie}),candidates[1]);
+  assert.deepEqual(seen,['https://www.jevai.org/api/v1/decisions','https://www.jevai.org/api/playground','https://jevplayground.com/api/evaluate']);
+});
+test('website session cookie round-trips and is refreshed before expiry, after a 401, with rotated tokens',async t=>{
+  const {session,cookie}=jevSessionFixture(Math.floor(Date.now()/1000)-10,'seed');
+  assert.deepEqual(parseJevCookie(cookie).session,session);
+  assert.ok(buildJevCookie({session}).includes('auth-token.1='),'large sessions are chunked like @supabase/ssr');
+  let refreshes=[],rejectNext=false,n=0;
+  t.mock.method(globalThis,'fetch',async(url,init)=>{
+    if(url==='https://sebhokoocyhjlqqiykbp.supabase.co/auth/v1/token?grant_type=refresh_token'){
+      assert.match(init.headers.apikey,/^sb_publishable_/);const {refresh_token}=JSON.parse(init.body);refreshes.push(refresh_token);n++;
+      return Response.json({access_token:'access-'+n,refresh_token:'refresh-'+n,expires_in:3600,token_type:'bearer'});}
+    if(url==='https://www.jevai.org/api/playground'){
+      const access=parseJevCookie(init.headers.Cookie).session.access_token;
+      if(rejectNext){rejectNext=false;return Response.json({error:'Sign in required.'},{status:401});}
+      return Response.json({result:{answers:{match:{type:'choice',choice:'c0',confidence:0.95,probabilities:{c0:0.97}}}},elapsedMs:200,access});}
+    throw new Error('unexpected '+url);
+  });
+  const env={JEV_COOKIE:cookie};
+  assert.equal(await chooseTitle(item,candidates,env),candidates[1]);
+  assert.deepEqual(refreshes,['refresh-seed'],'an expired seed session is refreshed before use');
+  assert.equal(await chooseTitle(item,candidates,env),candidates[1]);
+  assert.deepEqual(refreshes,['refresh-seed'],'a fresh session is reused');
+  rejectNext=true;
+  assert.equal(await chooseTitle(item,candidates,env),candidates[1]);
+  assert.deepEqual(refreshes,['refresh-seed','refresh-1'],'a 401 forces one refresh with the rotated refresh token');
+  const all=await Promise.all([jevSessionCookie(env,{force:true}),jevSessionCookie(env,{force:true})]);
+  assert.deepEqual(refreshes.slice(2),['refresh-2','refresh-3'],'concurrent refreshes are serialised and never reuse a token');
+  assert.notEqual(all[0],all[1]);
+});
+test('the Durable Object keeps the refreshed session and refuses unconfigured or non-POST calls',async t=>{
+  const {WatchHistory}=await import('../src/sync-server.js');
+  const data=new Map(),storage={get:async k=>data.get(k),put:async(k,v)=>{data.set(k,v);}};
+  const {cookie}=jevSessionFixture(Math.floor(Date.now()/1000)-10,'durable');let n=0;
+  t.mock.method(globalThis,'fetch',async url=>{assert.match(url,/supabase\.co\/auth\/v1\/token/);n++;return Response.json({access_token:'a'+n,refresh_token:'r'+n,expires_in:3600});});
+  const object=new WatchHistory({storage},{JEV_COOKIE:cookie});
+  const first=await (await object.fetch(new Request('https://history.internal/jev-session',{method:'POST'}))).json();
+  assert.equal(parseJevCookie(first.cookie).session.refresh_token,'r1');assert.equal(data.get('jev-session').session.refresh_token,'r1');
+  const again=new WatchHistory({storage},{JEV_COOKIE:cookie});
+  await again.fetch(new Request('https://history.internal/jev-session',{method:'POST'}));
+  assert.equal(n,1,'a new instance reuses the stored, still-valid session');
+  assert.equal((await again.fetch(new Request('https://history.internal/jev-session'))).status,404);
+  assert.equal((await new WatchHistory({storage},{}).fetch(new Request('https://history.internal/jev-session',{method:'POST'}))).status,404);
 });

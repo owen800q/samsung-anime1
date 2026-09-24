@@ -1,3 +1,4 @@
+import { currentJevCookie } from './jev-session.js';
 import { validDanmakuSetting } from './danmaku-server.js';
 const historyHeaders={'Cache-Control':'no-store','Content-Type':'application/json','X-Content-Type-Options':'nosniff'};
 const historyResponse=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:historyHeaders});
@@ -7,9 +8,11 @@ export function validProgress(data){
 }
 // One durable object per unguessable sync profile; no public shared history.
 export class WatchHistory {
-  constructor(ctx){this.storage=ctx.storage;}
+  constructor(ctx,env){this.storage=ctx.storage;this.env=env||{};this.jevLock=Promise.resolve();}
   async fetch(request){
     if(new URL(request.url).pathname==='/danmaku-settings')return this.danmakuSettings(request);
+    // Internal only: historyRoute never forwards this path, and only the 'jev-session:v1' instance is asked.
+    if(new URL(request.url).pathname==='/jev-session')return this.jevSession(request);
     if(request.method==='GET'){
       const index=await this.storage.get('index')||[];
       const entries=[];
@@ -45,6 +48,15 @@ export class WatchHistory {
       for(const removed of index.splice(500))await tx.delete('dm:'+removed);
       await tx.put(key,entry);await tx.put('dm-index',index);return historyResponse({entry});
     });
+  }
+  // Serialise refreshes: Supabase rotates refresh tokens, so two concurrent refreshes would race.
+  async jevSession(request){
+    if(request.method!=='POST'||!this.env.JEV_COOKIE)return historyResponse({error:'Jev session not configured'},404);
+    const force=new URL(request.url).searchParams.get('force')==='1';
+    const run=this.jevLock.then(()=>currentJevCookie({get:()=>this.storage.get('jev-session'),put:record=>this.storage.put('jev-session',record)},this.env,{force}));
+    this.jevLock=run.catch(()=>{});
+    try{return historyResponse({cookie:await run});}
+    catch(error){return historyResponse({error:'Jev session unavailable'},Number.isInteger(error.status)&&error.status>=400&&error.status<600?error.status:502);}
   }
 
 }
