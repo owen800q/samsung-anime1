@@ -1,4 +1,4 @@
-import { chooseTitle, titleQueries, titleMatchCached, titleMatchLog } from './title-match.js';
+import { chooseTitle, titleQueries, titleMatchCached, titleMatchLog, itemYears, matcherConfigured } from './title-match.js';
 import { CATALOG_SEED } from './catalog-data.js';
 import { PlaybackError, plainText, listSeriesEpisodes } from './adapter.js';
 
@@ -157,7 +157,7 @@ const resolvedCatalogueTitles = new Map();
 async function resolveCatalogueTitle(item, env = {}) {
   if(item.bgmId)return item;
   const diagnostic={scope:'bangumi',seriesId:item.id};
-  if(env.ASSETS&&!env.TITLE_MATCH_LLM_API_KEY)titleMatchLog('configuration',{...diagnostic,reason:'missing_secret'});
+  if(env.ASSETS&&!matcherConfigured(env))titleMatchLog('configuration',{...diagnostic,reason:'missing_secret'});
   const key=JSON.stringify([item.id,item.title,item.year]);
   const known=resolvedCatalogueTitles.get(key);
   if(known && known.expires>Date.now())return {...item,...known.value};
@@ -168,13 +168,13 @@ async function resolveCatalogueTitle(item, env = {}) {
       let result;
       try{result=await catalogueJSON('https://api.bgm.tv/v0/search/subjects?limit=20',{method:'POST',signal:AbortSignal.timeout(10000),headers:{'Content-Type':'application/json'},body:JSON.stringify({keyword:query,filter:{type:[2],nsfw:false}})},3600);}
       catch(error){failure=error;titleMatchLog('search',{...diagnostic,reason:'candidate_error'});continue;}
-      for(const x of result.data||[])if(x.type===2&&Number.isSafeInteger(x.id))candidates.set(x.id,{id:x.id,title:x.name_cn||x.name,aliases:[x.name,x.name_cn].filter(Boolean),year:String(x.date||'').slice(0,4)});
-      if([...candidates.values()].some(x=>x.year===String(item.year)&&[x.title,...x.aliases].some(n=>normalTitle(n)===normalTitle(item.title))))break;
+      for(const x of result.data||[])if(x.type===2&&Number.isSafeInteger(x.id))candidates.set(x.id,{id:x.id,title:x.name_cn||x.name,aliases:[x.name,x.name_cn].filter(Boolean),year:String(x.date||'').slice(0,4),date:x.date});
+      if([...candidates.values()].some(x=>itemYears(item).includes(x.year)&&[x.title,...x.aliases].some(n=>normalTitle(n)===normalTitle(item.title))))break;
     }
     if(!candidates.size&&failure)throw failure;
     const selected=await chooseTitle(item,[...candidates.values()],env,diagnostic);
     return selected?{bgmId:selected.id,aliases:[...new Set([...(item.aliases||[]),selected.title,...selected.aliases])]}:null;
-  },Boolean(env.TITLE_MATCH_LLM_API_KEY),diagnostic);
+  },matcherConfigured(env),diagnostic);
   if(value){while(resolvedCatalogueTitles.size>=300)resolvedCatalogueTitles.delete(resolvedCatalogueTitles.keys().next().value);resolvedCatalogueTitles.set(key,{value,expires:Date.now()+3600000});}
   return value?{...item,...value}:item;
 }
