@@ -6,29 +6,29 @@ const pairJSON = (data, status = 200) => Response.json(data, {status, headers: {
   'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', 'X-Content-Type-Options': 'nosniff'
 }});
 const pairRandom = (bytes = 32) => [...crypto.getRandomValues(new Uint8Array(bytes))].map(x => x.toString(16).padStart(2, '0')).join('');
-const pairHash = async value => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)))].map(x => x.toString(16).padStart(2, '0')).join('');
+export const pairHash = async value => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)))].map(x => x.toString(16).padStart(2, '0')).join('');
 const pairHex = value => typeof value === 'string' && /^[a-f0-9]{32,64}$/.test(value);
 function pairDigits() {
   let n;
   do { n = crypto.getRandomValues(new Uint32Array(1))[0]; } while (n >= 4294000000);
   return String(n % 1000000).padStart(6, '0');
 }
-async function pairBody(request) {
+export async function pairBody(request, noun = '配對') {
   if (!request.headers.get('content-type')?.startsWith('application/json')) throw Object.assign(new Error('請使用 JSON 請求。'), {status: 415});
   const reader = request.body?.getReader();
-  if (!reader) throw Object.assign(new Error('請提供配對資料。'), {status: 400});
+  if (!reader) throw Object.assign(new Error('請提供' + noun + '資料。'), {status: 400});
   let text = '', size = 0; const decoder = new TextDecoder();
   try {
     for (;;) {
       const {value, done} = await reader.read(); if (done) break;
       size += value.byteLength;
-      if (size > 2048) { await reader.cancel(); throw Object.assign(new Error('配對資料過長。'), {status: 413}); }
+      if (size > 2048) { await reader.cancel(); throw Object.assign(new Error(noun + '資料過長。'), {status: 413}); }
       text += decoder.decode(value, {stream: true});
     }
     const data = JSON.parse(text + decoder.decode());
     if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error();
     return data;
-  } catch (error) { throw error.status ? error : Object.assign(new Error('配對資料無效。'), {status: 400}); }
+  } catch (error) { throw error.status ? error : Object.assign(new Error(noun + '資料無效。'), {status: 400}); }
   finally { reader.releaseLock(); }
 }
 export async function pairingRoute(request, env) {

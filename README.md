@@ -72,6 +72,10 @@ The requesting device's cloud history/settings merge into the phone's profile, r
 
 The original 128-bit bearer remains under **進階：私人復原碼／舊同步碼**. Possession allows reading/updating that profile; do not publish it. Recovery switches rather than merges histories and requires a separate confirmation. This release retains shared-profile authorization, not individual-device accounts or per-device revocation. See [device pairing](docs/device-pairing.md).
 
+### Phone remote
+
+After pairing, tap **📺 遙控** on the phone and choose the TV. Search and pick episodes on the phone; the TV plays them from the shared resume point. A bottom bar on the phone controls pause/play, seeking, skip opening and next/previous episode. See [phone remote control](docs/remote-control.md).
+
 Progress saves every 15 seconds during playback and on pause, seek, end or leaving the page. The server retains the 500 most recently updated episodes per profile. Local storage is only an offline cache/outbox; it is not the cross-device database. Reconnection, page focus, episode selection and a 30-second foreground poll refresh server history. Revision checks prevent an outdated offline write from silently overwriting newer server progress. Forced browser/TV shutdown can lose the last unsent seconds. History from before this feature cannot be reconstructed.
 
 Resolve no longer waits for a redundant MP4 range probe; the real media request validates status and content type. Resolution has a 60-second overall deadline and the client stops waiting at 65 seconds, with a visible retry message. This reduces serial upstream waits but does not fix an unavailable source server.

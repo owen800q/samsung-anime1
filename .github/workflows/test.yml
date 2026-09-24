@@ -28,6 +28,9 @@ jobs:
       - run: node scripts/check-pairing.mjs 2>&1 | tee pairing-results/browser.log
         env:
           PAIRING_ARTIFACT_DIR: pairing-results/screenshots
+      - run: node scripts/check-remote.mjs 2>&1 | tee pairing-results/remote.log
+        env:
+          PAIRING_ARTIFACT_DIR: pairing-results/screenshots
       - uses: actions/upload-artifact@v4
         if: always()
         with:

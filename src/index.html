@@ -4,12 +4,34 @@
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="適合 Samsung 電視的獨立 Anime1 播放器，無需登入。">
   <meta name="robots" content="noindex,nofollow"><meta name="theme-color" content="#0b1019">
-  <title>Anime1 TV 動畫目錄</title><link rel="icon" href="/favicon.svg"><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/home.css"><link rel="stylesheet" href="/danmaku.css"><link rel="stylesheet" href="/pairing.css">
-  <script src="/state.js" defer></script><script src="/vendor/qrcode.js" defer></script><script src="/pairing.js" defer></script><script src="/vendor/dplayer-1.27.1.min.js" defer></script><script src="/player.js" defer></script><script src="/danmaku.js" defer></script><script src="/app.js" defer></script><script src="/home.js" defer></script>
+  <title>Anime1 TV 動畫目錄</title><link rel="icon" href="/favicon.svg"><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/home.css"><link rel="stylesheet" href="/danmaku.css"><link rel="stylesheet" href="/pairing.css"><link rel="stylesheet" href="/remote.css">
+  <script src="/state.js" defer></script><script src="/vendor/qrcode.js" defer></script><script src="/pairing.js" defer></script><script src="/remote.js" defer></script><script src="/vendor/dplayer-1.27.1.min.js" defer></script><script src="/player.js" defer></script><script src="/danmaku.js" defer></script><script src="/app.js" defer></script><script src="/home.js" defer></script>
 </head>
 <body><main class="shell">
-  <header class="masthead"><a href="/" class="brand"><span class="brand-mark" aria-hidden="true">▶</span><span>Anime1 <strong>TV</strong></span></a><button id="home-back" class="tv-button outline" hidden>← 動畫目錄</button><button id="sync-toggle" aria-controls="sync-panel" aria-expanded="false" class="tv-button outline">裝置同步</button></header>
+  <header class="masthead"><a href="/" class="brand"><span class="brand-mark" aria-hidden="true">▶</span><span>Anime1 <strong>TV</strong></span></a><button id="home-back" class="tv-button outline" hidden>← 動畫目錄</button><button id="remote-toggle" aria-controls="remote-panel" aria-expanded="false" class="tv-button outline" hidden>📺 遙控</button><button id="sync-toggle" aria-controls="sync-panel" aria-expanded="false" class="tv-button outline">裝置同步</button></header>
   <p id="pair-notice" role="status" hidden></p>
+  <div id="remote-toast" class="remote-toast" role="status" hidden></div>
+  <section id="remote-panel" class="remote-panel" role="dialog" aria-labelledby="remote-title" hidden>
+    <div class="remote-sheet">
+      <div class="remote-heading"><h2 id="remote-title" tabindex="-1">遙控電視</h2><button id="remote-close" class="tv-button outline" aria-label="關閉遙控">✕</button></div>
+      <p class="remote-help">用手機搜尋、揀集，電視會直接播放。電視要開住本網站，並已用「裝置同步」連接此手機。</p>
+      <div id="remote-devices" class="remote-devices" role="group" aria-label="選擇播放裝置"></div>
+      <p id="remote-empty" class="remote-help" hidden>未找到在線的電視或電腦。請在電視開啟本網站，並用「裝置同步」連接此手機。</p>
+      <div id="remote-now" class="remote-now" hidden><p id="remote-now-status"></p><strong id="remote-now-title"></strong><progress id="remote-now-progress" max="1" value="0" aria-label="電視播放進度"></progress><span id="remote-now-time"></span></div>
+      <div id="remote-controls" class="remote-controls" hidden>
+        <button id="remote-previous" data-remote="previous" class="tv-button secondary" aria-label="上一集">⏮</button>
+        <button data-remote="seek" data-delta="-10" class="tv-button secondary" aria-label="倒後 10 秒">−10秒</button>
+        <button data-remote="toggle" class="tv-button" aria-label="播放">▶</button>
+        <button data-remote="seek" data-delta="10" class="tv-button secondary" aria-label="快進 10 秒">+10秒</button>
+        <button id="remote-next" data-remote="next" class="tv-button secondary" aria-label="下一集">⏭</button>
+        <button data-remote="seek" data-delta="90" class="tv-button secondary remote-wide">跳過片頭 +90秒</button>
+      </div>
+      <button id="remote-browse" class="tv-button remote-browse">在手機揀動畫</button>
+      <p id="remote-status" role="status"></p>
+      <details class="remote-name"><summary>此裝置名稱</summary><form id="remote-name-form"><input id="remote-name-input" class="tv-input" maxlength="40" autocomplete="off" aria-label="此裝置名稱"><button class="tv-button secondary" type="submit">儲存</button></form></details>
+    </div>
+  </section>
+  <div id="remote-bar" class="remote-bar" hidden><button id="remote-bar-open" class="remote-bar-info" aria-label="開啟遙控"><strong id="remote-bar-target"></strong><span id="remote-bar-title"></span></button><button data-remote="toggle" class="tv-button" aria-label="播放">▶</button><button id="remote-bar-stop" class="tv-button outline" aria-label="停止遙控，改回在此裝置播放">✕</button></div>
   <section id="sync-panel" role="dialog" aria-modal="true" aria-labelledby="pair-title" hidden>
     <div class="pairing-dialog">
       <div class="pairing-heading"><h2 id="pair-title" tabindex="-1">裝置同步</h2><button id="pair-close" class="tv-button outline" aria-label="關閉裝置同步">✕</button></div>

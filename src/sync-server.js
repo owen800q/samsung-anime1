@@ -1,4 +1,5 @@
 import { PairingSessions, pairingHistory } from './pairing-server.js';
+import { RemoteHub } from './remote-server.js';
 import { currentJevCookie } from './jev-session.js';
 import { validDanmakuSetting } from './danmaku-server.js';
 const historyHeaders={'Cache-Control':'no-store','Content-Type':'application/json','X-Content-Type-Options':'nosniff'};
@@ -9,11 +10,17 @@ export function validProgress(data){
 }
 // One durable object per unguessable sync profile; no public shared history.
 export class WatchHistory {
-  constructor(ctx,env){this.storage=ctx.storage;this.env=env||{};this.jevLock=Promise.resolve();this.pairing=new PairingSessions(this.storage,this.env);}
+  constructor(ctx,env){this.storage=ctx.storage;this.env=env||{};this.jevLock=Promise.resolve();this.pairing=new PairingSessions(this.storage,this.env);this.remote=new RemoteHub(ctx,this.storage);
+    // Heartbeats are answered without waking a hibernating object.
+    try{if(typeof WebSocketRequestResponsePair==='function')ctx.setWebSocketAutoResponse?.(new WebSocketRequestResponsePair('ping','pong'));}catch{}}
   async alarm(){return this.pairing.cleanup();}
+  webSocketMessage(ws,message){return this.remote.message(ws,message);}
+  webSocketClose(ws){return this.remote.closed(ws);}
+  webSocketError(ws){return this.remote.closed(ws);}
   async fetch(request){
     const path=new URL(request.url).pathname;
     if(path.startsWith('/pairing/'))return this.pairing.fetch(request);
+    if(path.startsWith('/remote/'))return this.remote.fetch(request);
     if(path==='/pairing-export'||path==='/pairing-import')return pairingHistory(this.storage,request,validProgress,validDanmakuSetting);
     if(new URL(request.url).pathname==='/danmaku-settings')return this.danmakuSettings(request);
     // Internal only: historyRoute never forwards this path, and only the 'jev-session:v1' instance is asked.

@@ -29,7 +29,18 @@
     video.currentTime=saved.completed?0:Math.min(saved.position,Math.max(0,video.duration-0.25));
     $('resume-status').hidden=false;$('resume-status').textContent=saved.completed?'本集已看完，從頭播放。':'已接續上次進度 '+S.time(video.currentTime);
   }
-  function stop(){void window.TVPlayer?.leave();window.TVDanmaku?.stop();saveProgress();watchArmed=false;pendingResume=null;generation++;request?.abort();video.pause();controls(false);}
+  function stop(){void window.TVPlayer?.leave();window.TVDanmaku?.stop();saveProgress();watchArmed=false;pendingResume=null;generation++;request?.abort();video.pause();controls(false);report(true);}
+  // What this screen is playing, for phones controlling it (remote.js throttles delivery).
+  function report(cleared=false){
+    const live=!cleared&&playback&&!$('watch-player').hidden;
+    document.dispatchEvent(new CustomEvent('anime1:playback-state',{detail:live?{episodeId:episodeId(playback.url),title:playback.title,position:video.currentTime||0,duration:Number.isFinite(video.duration)&&video.duration>0?video.duration:null,paused:video.paused,hasPrevious:!!playback.previous,hasNext:!!playback.next}:null}));
+  }
+  // Episode choices go to the phone-selected screen when the phone is casting.
+  function choose(url,opts={}){
+    const id=episodeId(url),saved=S.get(id);
+    if(window.TVRemote?.cast({episodeId:id,seriesId:opts.seriesId??selectedSeries??saved?.seriesId??null,seriesTitle:opts.seriesTitle||selectedTitle||saved?.seriesTitle||'',title:opts.title||saved?.title||''}))return;
+    void prepare(url,false,opts);
+  }
   function controls(loading) {
     busy = loading;
     ['play','fullscreen'].forEach(id => { $(id).disabled = busy || !playback; });
@@ -82,7 +93,7 @@
         const button = document.createElement('button'); button.className = 'episode-button'; button.dataset.url = item.url; button.title = item.title; button.disabled = busy;
         const label = document.createElement('span'); label.textContent = item.label;
         const current = document.createElement('small'); button.append(label,current);
-        button.addEventListener('click', () => void prepare(item.url)); $('episodes').append(button);
+        button.addEventListener('click', () => choose(item.url,{title:catalog?.title?catalog.title+' '+item.label:item.title})); $('episodes').append(button);
       });
       $('episodes-more').hidden = !catalog.nextPage;
       markEpisode();
@@ -135,7 +146,7 @@
       window.TVDanmaku?.open({episodeId:episodeId(data.url),title:data.title,seriesTitle:selectedTitle||data.title.replace(/\s*\[[^\]]+\]\s*$/,''),seriesId:selectedSeries});
       $('title').textContent = data.title; $('source').href = data.url; $('source').hidden = false;
       $('episode-nav').hidden = !(data.previous || data.next); status('影片已準備好，請按播放');
-      $('play').disabled = false; $('play').focus();
+      $('play').disabled = false; $('play').focus(); report();
       return { state: 'ready', title: data.title, url: data.url };
     } catch (e) {
       if (signal.aborted&&signal.reason!=='timeout') return;
@@ -149,22 +160,23 @@
     if (!video.paused) { video.pause(); return; }
     try { await video.play(); } catch (e) { error(e.name === 'NotAllowedError' ? '請再按一次播放鍵，允許電視開始播放。' : '電視未能開始播放，可按「重新載入」更新影片連線。'); }
   }
+  async function remotePlay(url,opts){const result=await prepare(url,false,opts);if(result?.state==='ready'&&video.paused)await toggle();}
   $('episodes-retry').addEventListener('click', () => void loadEpisodes(listInput, retryPage, true));
   $('episodes-more').addEventListener('click', () => { if (catalog?.nextPage) void loadEpisodes(listInput, catalog.nextPage); });
   $('play').addEventListener('click', () => void toggle());
   $('reload').addEventListener('click', () => { if (requestedUrl) void prepare(requestedUrl, true, {seriesId:selectedSeries,seriesTitle:selectedTitle}); });
   $('previous').addEventListener('click', () => { if (playback?.previous) void prepare(playback.previous.url); });
   $('next').addEventListener('click', () => { if (playback?.next) void prepare(playback.next.url); });
-  video.addEventListener('playing', () => { restorePosition();watchArmed=true;lastSavedAt=Date.now();status('播放中'); $('play').textContent = '❚❚ 暫停'; error(''); });
-  video.addEventListener('pause', () => { saveProgress();if (playback) status('已暫停'); $('play').textContent = '▶ 播放'; });
+  video.addEventListener('playing', () => { restorePosition();watchArmed=true;lastSavedAt=Date.now();status('播放中'); $('play').textContent = '❚❚ 暫停'; error(''); report(); });
+  video.addEventListener('pause', () => { saveProgress();if (playback) status('已暫停'); $('play').textContent = '▶ 播放'; report(); });
   video.addEventListener('waiting', () => { if (playback) status('緩衝中…'); });
   video.addEventListener('canplay', () => { if (playback) status(video.paused ? '可以播放' : '播放中'); });
-  video.addEventListener('ended', () => { saveProgress();status('本集播放完畢'); $('play').textContent = '▶ 播放'; });
+  video.addEventListener('ended', () => { saveProgress();status('本集播放完畢'); $('play').textContent = '▶ 播放'; report(); });
   video.addEventListener('error', () => { if (playback) { status('播放失敗'); error('影片未能播放（' + (video.error?.code || '未知') + '），可按「重新載入」更新播放連線。'); } });
   video.addEventListener('loadedmetadata',restorePosition);
   video.addEventListener('durationchange',restorePosition);
-  video.addEventListener('timeupdate',()=>{if(Date.now()-lastSavedAt>=15000)saveProgress();});
-  video.addEventListener('seeked',saveProgress);
+  video.addEventListener('timeupdate',()=>{if(Date.now()-lastSavedAt>=15000)saveProgress();report();});
+  video.addEventListener('seeked',()=>{saveProgress();report();});
   window.addEventListener('pagehide',saveProgress);
   document.addEventListener('visibilitychange',()=>{if(document.hidden)saveProgress();else void S.refresh();});
   document.addEventListener('anime1:history-updated',markEpisode);
@@ -197,7 +209,14 @@
     void loadEpisodes('series:' + e.detail.id, 1, true);
   });
   document.addEventListener('anime1:home',()=>{stop();listGeneration++;listRequest?.abort();$('episode-picker').hidden=true;});
-  document.addEventListener('anime1:watch',e=>void prepare('https://anime1.me/'+e.detail.episodeId,false,{seriesId:e.detail.seriesId,seriesTitle:e.detail.seriesTitle}));
+  document.addEventListener('anime1:watch',e=>choose('https://anime1.me/'+e.detail.episodeId,{seriesId:e.detail.seriesId,seriesTitle:e.detail.seriesTitle,title:e.detail.title}));
+  document.addEventListener('anime1:remote-play',e=>void remotePlay('https://anime1.me/'+e.detail.episodeId,{seriesId:e.detail.seriesId,seriesTitle:e.detail.seriesTitle}));
+  document.addEventListener('anime1:remote-control',e=>{
+    const command=e.detail;
+    if(command.type==='toggle')void toggle();
+    else if(command.type==='seek'&&playback&&Number.isFinite(video.duration))video.currentTime=Math.max(0,Math.min(video.duration,video.currentTime+command.delta));
+    else if(['next','previous'].includes(command.type)&&playback?.[command.type])void remotePlay(playback[command.type].url,{});
+  });
   document.addEventListener('anime1:route',()=>{
     const p=S.route();
     if(p.get('view')==='watch'&&/^\d{1,10}$/.test(p.get('episode')||''))void prepare('https://anime1.me/'+p.get('episode'),false,{route:false,seriesId:p.get('series')});

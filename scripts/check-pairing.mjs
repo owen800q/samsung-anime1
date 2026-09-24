@@ -37,7 +37,7 @@ let pairCreates=0;
 const server=http.createServer(async(req,res)=>{
   try{
     const url=new URL(req.url,'http://'+req.headers.host);let data;
-    if(url.pathname.startsWith('/api/pairing/')||['/api/history','/api/danmaku/settings'].includes(url.pathname)){
+    if(url.pathname.startsWith('/api/pairing/')||url.pathname.startsWith('/api/remote/')||['/api/history','/api/danmaku/settings'].includes(url.pathname)){
       if(url.pathname==='/api/pairing/create')pairCreates++;
       const chunks=[];for await(const chunk of req)chunks.push(chunk);
       const result=await worker.fetch(new Request(url,{method:req.method,headers:req.headers,body:['POST','PUT'].includes(req.method)?Buffer.concat(chunks):undefined}),env);
