@@ -1580,6 +1580,7 @@ async function requestJson(request) {
   try { return JSON.parse(text + decoder.decode()); } catch { throw new PlaybackError('影片資料無效。', 400); }
 }
 
+// API routes (pairing, remote, history, catalogue, playback) run before static assets.
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
