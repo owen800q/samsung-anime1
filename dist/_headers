@@ -28,3 +28,7 @@
   Cache-Control: public, max-age=0, must-revalidate
 /vendor/qrcode.js
   Cache-Control: public, max-age=0, must-revalidate
+/remote.js
+  Cache-Control: public, max-age=0, must-revalidate
+/remote.css
+  Cache-Control: public, max-age=0, must-revalidate

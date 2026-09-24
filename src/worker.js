@@ -3,6 +3,7 @@ import { resolveEpisode, streamMedia, searchEpisodes, listEpisodes, errorRespons
 import { browseCatalogue, catalogueMetadata, catalogueSeries, catalogueCover, catalogueItem, catalogueComments } from './catalog.js';
 import { historyRoute } from './sync-server.js';
 import { pairingRoute } from './pairing-server.js';
+import { remoteRoute } from './remote-server.js';
 
 async function requestJson(request) {
   if (!request.headers.get('content-type')?.startsWith('application/json')) throw new PlaybackError('請使用播放器載入影片。', 415);
@@ -29,6 +30,7 @@ export default {
       const origin = request.headers.get('origin');
       if ((origin && origin !== url.origin) || request.headers.get('sec-fetch-site') === 'cross-site') throw new PlaybackError('請從播放器網頁開啟影片。', 403);
       if (url.pathname.startsWith('/api/pairing/')) return await pairingRoute(request,env);
+      if (url.pathname.startsWith('/api/remote/')) return await remoteRoute(request,env);
       if (url.pathname === '/api/history' || url.pathname === '/api/danmaku/settings') return await historyRoute(request,env);
       if (request.method === 'GET' && url.pathname === '/api/danmaku/providers') return Response.json({dandanplay:dandanConfigured(env)},{headers:{'Cache-Control':'no-store'}});
       if (request.method === 'GET' && url.pathname === '/api/danmaku/fallback') {

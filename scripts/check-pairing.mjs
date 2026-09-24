@@ -37,7 +37,7 @@ let pairCreates=0;
 const server=http.createServer(async(req,res)=>{
   try{
     const url=new URL(req.url,'http://'+req.headers.host);let data;
-    if(url.pathname.startsWith('/api/pairing/')||['/api/history','/api/danmaku/settings'].includes(url.pathname)){
+    if(url.pathname.startsWith('/api/pairing/')||url.pathname.startsWith('/api/remote/')||['/api/history','/api/danmaku/settings'].includes(url.pathname)){
       if(url.pathname==='/api/pairing/create')pairCreates++;
       const chunks=[];for await(const chunk of req)chunks.push(chunk);
       const result=await worker.fetch(new Request(url,{method:req.method,headers:req.headers,body:['POST','PUT'].includes(req.method)?Buffer.concat(chunks):undefined}),env);
@@ -77,12 +77,16 @@ async function saved(page,id,position){
   await page.evaluate(({id,position})=>{TVState.save({episodeId:id,seriesId:'1959',title:'動畫測試 [03]',seriesTitle:'動畫測試',position,duration:1400,completed:false});return TVState.flush();},{id,position});
   await page.waitForFunction(id=>TVState.get(id)?.dirty===false,id);
 }
-async function approve(page){await page.locator('#pair-match').check();await page.locator('#pair-approve').click();await page.locator('#pair-done').waitFor();}
-async function pairing(page){await page.locator('#sync-toggle').click();await page.waitForFunction(()=>document.getElementById('pair-digits').textContent.replace(/\s/g,'').length===6&&!document.getElementById('pair-wait').hidden);return page.evaluate(()=>JSON.parse(sessionStorage.getItem('anime1-pairing')));}
+async function approve(page){await page.locator('#pair-match').check();await page.locator('#pair-approve').click();await page.locator('#pair-done').waitFor();return (await page.locator('#pair-done-verify').textContent()).trim();}
+async function accept(page,verify){await page.locator('#pair-accept').waitFor();assert.equal((await page.locator('#pair-verify').textContent()).trim(),verify);await page.locator('#pair-accept-yes').click();}
+async function pairing(page){await page.locator('#sync-toggle').click();await page.locator('#pair-create').click();await page.waitForFunction(()=>document.getElementById('pair-digits').textContent.replace(/\s/g,'').length===6&&!document.getElementById('pair-wait').hidden);return page.evaluate(()=>JSON.parse(sessionStorage.getItem('anime1-pairing')));}
 try{
   const office=await device(1440,900),phone=await device(390,844),tv=await device(1280,720);
   await saved(office.page,'29599',754);await saved(office.page,'29605',60);
   const officeOldProfile=await office.page.evaluate(()=>TVState.profile());
+  const createsBeforeOpen=pairCreates;await office.page.locator('#sync-toggle').click();await office.page.locator('#pair-home').waitFor();
+  assert.equal(pairCreates,createsBeforeOpen);assert.equal(await office.page.evaluate(()=>document.activeElement.id),'pair-create');
+  await office.page.locator('#pair-close').click();
   const first=await pairing(office.page);
   assert.equal(await office.page.locator('#sync-code').isVisible(),false);
   assert.equal(await office.page.locator('input:focus').count(),0);
@@ -97,9 +101,12 @@ try{
   assert.equal(await phone.page.locator('#pair-approve').isDisabled(),true);
   assert.equal((await phone.page.locator('#pair-confirm-code').textContent()).replace(/\s/g,''),first.code);
   await phone.page.screenshot({path:path.join(artifacts,'mobile-confirmation.png'),fullPage:true});
-  await approve(phone.page);
+  const firstVerify=await approve(phone.page);assert.match(firstVerify,/^\d{2}$/);
+  assert.equal(await office.page.evaluate(old=>TVState.profile()===old,officeOldProfile),true);
+  await accept(office.page,firstVerify);
   await office.page.waitForFunction(old=>TVState.profile()!==old,officeOldProfile);
   await office.page.locator('#sync-panel').waitFor({state:'hidden'});
+  await phone.page.evaluate(()=>TVState.refresh());
   assert.equal(await phone.page.evaluate(()=>TVState.get('29599').position),754);
   const sharedProfile=await phone.page.evaluate(()=>TVState.profile());
   assert.equal(await office.page.evaluate(()=>TVState.profile()),sharedProfile);
@@ -118,7 +125,7 @@ try{
   await phone.page.locator('#sync-toggle').click();await phone.page.locator('#pair-enter').click();
   await phone.page.locator('#pair-code-input').fill(second.code.slice(0,3)+' '+second.code.slice(3));
   assert.equal(await phone.page.locator('#pair-code-input').getAttribute('inputmode'),'numeric');
-  await phone.page.locator('#pair-submit').click();await phone.page.locator('#pair-confirm').waitFor();await approve(phone.page);
+  await phone.page.locator('#pair-submit').click();await phone.page.locator('#pair-confirm').waitFor();await accept(tv.page,await approve(phone.page));
   await tv.page.waitForFunction(token=>TVState.profile()===token,sharedProfile);
   await tv.page.locator('#sync-panel').waitFor({state:'hidden'});
   assert.equal(await tv.page.evaluate(()=>TVState.get('29599').position),754);
@@ -144,6 +151,17 @@ try{
   assert.equal(await phone.page.evaluate(()=>TVState.get('29599').position),800);
   await phone.page.unroute('**/api/pairing/preview');await phone.page.locator('#pair-close').click();
   console.log('PASS: malformed code and network failure leave current progress untouched');
+
+  const stranger=await device(390,844);const rejected=await pairing(tv.page);
+  await stranger.page.locator('#sync-toggle').click();await stranger.page.locator('#pair-enter').click();
+  await stranger.page.locator('#pair-code-input').fill(rejected.code);await stranger.page.locator('#pair-submit').click();
+  await stranger.page.locator('#pair-confirm').waitFor();await approve(stranger.page);
+  await tv.page.locator('#pair-accept').waitFor();await tv.page.locator('#pair-accept-no').click();await tv.page.locator('#pair-home').waitFor();
+  assert.equal(await tv.page.evaluate(()=>TVState.profile()),sharedProfile);
+  assert.equal((await objects.get('pairing:v1').storage.get('session:'+rejected.sessionId)).status,'cancelled');
+  assert.equal(await stranger.page.evaluate(()=>TVState.get('29599')),undefined);
+  await tv.page.locator('#pair-close').click();await stranger.context.close();
+  console.log('PASS: an unexpected phone approval is shown for comparison and can be rejected without merging');
 
   await tv.page.goto(base);const expiring=await pairing(tv.page);
   const db=objects.get('pairing:v1').storage,record=await db.get('session:'+expiring.sessionId);
