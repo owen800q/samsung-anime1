@@ -1,0 +1,32 @@
+name: Build and tests
+on:
+  push:
+    branches: [main, feat/tv-qr-device-pairing]
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm run build
+      - run: npm test
+      - name: Upload reproducible test bundle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: anime1-test-bundle
+          retention-days: 3
+          path: |
+            src/
+            dist/
+            scripts/
+            tests/
+            package.json
+            README.md
+            wrangler*.jsonc
