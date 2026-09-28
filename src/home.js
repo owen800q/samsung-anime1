@@ -117,7 +117,7 @@
   function pressed(){document.querySelectorAll('[data-preset]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.preset===activePreset)));}
   function reset(){for(const key of ['q','year','season','format','genre'])$('catalog-'+key).value='';state='';sort='';activePreset='all';pressed();}
   document.querySelectorAll('[data-preset]').forEach(button=>button.addEventListener('click',()=>{reset();activePreset=button.dataset.preset;if(activePreset==='airing'||activePreset==='complete')state=activePreset;if(activePreset==='ranking')sort='rank';if(activePreset==='movie')$('catalog-format').value='movie';if(activePreset==='season'){const now=new Date();const year=String(now.getFullYear());if(![...$('catalog-year').options].some(o=>o.value===year)){const o=document.createElement('option');o.value=year;o.textContent=year;$('catalog-year').append(o);}$('catalog-year').value=year;$('catalog-season').value=['冬','春','夏','秋'][Math.floor(now.getMonth()/3)];}pressed();void load();}));
-  $('catalog-form').addEventListener('submit',e=>{e.preventDefault();void load();});
+  $('catalog-form').addEventListener('submit',e=>{e.preventDefault();const q=$('catalog-q').value.trim();if(q){reset();$('catalog-q').value=q;}void load();});
   for(const key of ['year','season','format','genre'])$('catalog-'+key).addEventListener('change',()=>{activePreset=sort==='rank'?'ranking':state||'all';pressed();void load();});
   $('catalog-clear').addEventListener('click',()=>{reset();void load();});$('catalog-retry').addEventListener('click',()=>void load(nextPage||1));$('catalog-more').addEventListener('click',()=>{if(nextPage)void load(nextPage);});
   $('detail-cover').addEventListener('error',()=>{$('detail-cover').hidden=true;});
