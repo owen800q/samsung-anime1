@@ -1,0 +1,34 @@
+/*
+  Referrer-Policy: no-referrer
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Content-Security-Policy: default-src 'self'; script-src 'self'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-src 'none'; frame-ancestors 'none'
+/app.js
+  Cache-Control: public, max-age=0, must-revalidate
+/style.css
+  Cache-Control: public, max-age=0, must-revalidate
+/home.js
+  Cache-Control: public, max-age=0, must-revalidate
+/home.css
+  Cache-Control: public, max-age=0, must-revalidate
+/state.js
+  Cache-Control: public, max-age=0, must-revalidate
+
+/danmaku.js
+  Cache-Control: public, max-age=0, must-revalidate
+/danmaku.css
+  Cache-Control: public, max-age=0, must-revalidate
+
+/player.js
+  Cache-Control: public, max-age=0, must-revalidate
+
+/pairing.js
+  Cache-Control: public, max-age=0, must-revalidate
+/pairing.css
+  Cache-Control: public, max-age=0, must-revalidate
+/vendor/qrcode.js
+  Cache-Control: public, max-age=0, must-revalidate
+/remote.js
+  Cache-Control: public, max-age=0, must-revalidate
+/remote.css
+  Cache-Control: public, max-age=0, must-revalidate

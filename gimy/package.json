@@ -1,0 +1,22 @@
+{
+  "name": "gimy-tv",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "dev": "wrangler dev",
+    "deploy": "npm run build && wrangler deploy"
+  },
+  "dependencies": {
+    "hls.js": "1.6.13"
+  },
+  "devDependencies": {
+    "jsdom": "^26.1.0",
+    "wrangler": "4.45.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

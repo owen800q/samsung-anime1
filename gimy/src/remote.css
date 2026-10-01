@@ -1,0 +1,35 @@
+.remote-toast{position:fixed;top:18px;left:50%;transform:translateX(-50%);z-index:10001;max-width:calc(100% - 32px);padding:12px 20px;border:1px solid #4c8375;border-radius:12px;background:#122e2a;color:#d7fff3;font-size:18px;box-shadow:0 8px 30px rgba(0,0,0,.45);overflow-wrap:anywhere}
+.remote-panel{position:fixed;inset:auto 0 0 0;z-index:9000;display:flex;justify-content:center;padding:0 12px 12px;max-height:100%;overflow:auto;overscroll-behavior:contain}
+.remote-sheet{width:100%;max-width:560px;padding:20px;border:1px solid #29496f;border-radius:20px;background:#102641;box-shadow:0 -10px 40px rgba(0,0,0,.5);box-sizing:border-box;line-height:1.5}
+.remote-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.remote-heading h2{margin:0;font-size:24px}
+.remote-heading .tv-button{min-width:48px;padding:8px 14px}
+.remote-help{font-size:15px;color:#b9cada;margin:10px 0}
+.remote-devices{display:grid;gap:10px;margin:14px 0}
+.remote-device{display:grid;gap:2px;text-align:left;padding:12px 16px;border:1px solid var(--border);border-radius:12px;background:var(--muted);color:var(--foreground)}
+.remote-device small{color:var(--muted-foreground);font-size:14px;overflow-wrap:anywhere}
+.remote-device[aria-pressed=true]{border-color:var(--primary);background:#173a35}
+.remote-device[aria-pressed=true] strong::after{content:' ✓';color:var(--primary)}
+.remote-now{display:grid;gap:6px;margin:14px 0;padding:14px 16px;border-radius:12px;background:#0b1b2e}
+.remote-now p{margin:0;font-size:14px;color:#9bf0d5}
+.remote-now strong{font-size:18px;overflow-wrap:anywhere}
+.remote-now progress{width:100%;height:8px;accent-color:#9bf0d5}
+.remote-now span{font-size:14px;color:#b9cada;font-variant-numeric:tabular-nums}
+.remote-controls{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin:14px 0}
+.remote-controls .tv-button{min-height:56px;padding:8px 4px;font-size:18px;border-radius:12px}
+.remote-controls .remote-wide{grid-column:1/-1;min-height:48px;font-size:16px}
+.remote-browse{width:100%;min-height:52px;border-radius:12px}
+#remote-status{min-height:1.5em;margin:10px 0 0;font-size:15px;color:#a9c5b9}
+.remote-name{margin-top:10px;border-top:1px solid #36506b;padding-top:6px}
+.remote-name summary{cursor:pointer;padding:10px 0;color:#c6d5e5;font-size:15px}
+.remote-name form{display:flex;gap:10px}
+.remote-bar{position:fixed;left:0;right:0;bottom:0;z-index:8999;display:flex;align-items:center;gap:8px;padding:10px 12px calc(10px + env(safe-area-inset-bottom));background:#102641;border-top:1px solid #29496f;box-shadow:0 -6px 24px rgba(0,0,0,.45)}
+.remote-bar-info{flex:1;min-width:0;display:grid;text-align:left;background:none;padding:4px}
+.remote-bar-info strong{font-size:15px;color:#9bf0d5}
+.remote-bar-info span{font-size:14px;color:#d4deea;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.remote-bar .tv-button{flex:none;min-width:52px;min-height:48px;padding:6px 12px;border-radius:12px}
+body.remote-casting{padding-bottom:84px}
+@media(max-width:380px){.remote-controls .tv-button{font-size:15px}}
+#remote-toggle{margin-left:auto}
+@media(max-width:560px){.masthead:has(#remote-toggle:not([hidden])){gap:8px}#remote-toggle:not([hidden]),#remote-toggle:not([hidden])+#sync-toggle{padding:10px 11px;font-size:15px}}
+

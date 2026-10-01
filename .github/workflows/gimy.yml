@@ -1,0 +1,28 @@
+name: Gimy TV checks
+on:
+  pull_request:
+    paths: ['gimy/**', '.github/workflows/gimy.yml']
+  push:
+    branches: [main]
+    paths: ['gimy/**', '.github/workflows/gimy.yml']
+permissions:
+  contents: read
+jobs:
+  gimy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: gimy
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: gimy/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - run: npx wrangler deploy --dry-run --outdir /tmp/gimy-worker-check
+        env:
+          WRANGLER_SEND_METRICS: 'false'
