@@ -31,6 +31,10 @@
 /* Only focus inside the control bar itself pins it; focus on the video or exit button lets DPlayer auto-hide. */
 #screen .dplayer-controller:focus-within{opacity:1;transform:translateY(0)}
 #screen .player-exit{position:absolute;top:14px;right:14px;z-index:10;border:1px solid #98f2d1;border-radius:9px;padding:10px 16px;background:#131d2ae6;color:#f4f7fb;font-size:16px;min-height:44px}
+#screen .player-exit{transition:opacity .3s}
+/* Hide the exit button together with DPlayer's controls so it stops covering video and danmaku; tapping reveals both. */
+#screen.dplayer-hide-controller .player-exit{opacity:0;pointer-events:none}
+#screen .player-exit:focus-visible{opacity:1;pointer-events:auto}
 #screen.dplayer-fulled{position:fixed;inset:0;width:100%;height:100%;min-width:0;max-width:none;margin:0;border:0;border-radius:0;aspect-ratio:auto;z-index:10000}
 #screen:fullscreen{width:100%;height:100%;min-width:0;max-width:none;margin:0;border:0;border-radius:0;aspect-ratio:auto}
 #screen:-webkit-full-screen{width:100%;height:100%;min-width:0;max-width:none;margin:0;border:0;border-radius:0;aspect-ratio:auto}
