@@ -1,5 +1,5 @@
 import { searchDanmaku, resolveDanmaku, getDanmaku, dandanConfigured, matchDandanplay, fallbackDanmaku } from './danmaku-server.js';
-import { resolveEpisode, streamMedia, searchEpisodes, listEpisodes, errorResponse, PlaybackError } from './adapter.js';
+import { resolveEpisode, streamMedia, searchEpisodes, listEpisodes, errorResponse, PlaybackError, allowedCaller, tvAppRequest } from './adapter.js';
 import { browseCatalogue, catalogueMetadata, catalogueSeries, catalogueCover, catalogueItem, catalogueComments } from './catalog.js';
 import { historyRoute } from './sync-server.js';
 import { pairingRoute } from './pairing-server.js';
@@ -22,14 +22,30 @@ async function requestJson(request) {
   try { return JSON.parse(text + decoder.decode()); } catch { throw new PlaybackError('影片資料無效。', 400); }
 }
 
+// The TV app's origin is opaque ("null"); answer it with CORS so the Tizen runtime accepts the responses.
+const TV_CORS = { 'Access-Control-Allow-Headers': 'Authorization, Content-Type, Range', 'Access-Control-Allow-Methods': 'GET, HEAD, POST, PUT', 'Access-Control-Max-Age': '600', 'Vary': 'Origin' };
+function withTvCors(request, response) {
+  if (response.status === 101 || response.webSocket) return response;
+  const out = new Response(response.body, response);
+  out.headers.set('Access-Control-Allow-Origin', request.headers.get('origin') || '*');
+  for (const [key, value] of Object.entries(TV_CORS)) out.headers.set(key, value);
+  return out;
+}
+
 // API routes (pairing, remote, history, catalogue, playback) run before static assets.
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (!url.pathname.startsWith('/api/')) return env.ASSETS.fetch(request);
+    if (!tvAppRequest(request)) return route(request, env, url);
+    if (request.method === 'OPTIONS') return withTvCors(request, new Response(null, { status: 204 }));
+    return withTvCors(request, await route(request, env, url));
+  },
+};
+
+async function route(request, env, url) {
     try {
-      const origin = request.headers.get('origin');
-      if ((origin && origin !== url.origin) || request.headers.get('sec-fetch-site') === 'cross-site') throw new PlaybackError('請從播放器網頁開啟影片。', 403);
+      if (!allowedCaller(request)) throw new PlaybackError('請從播放器網頁開啟影片。', 403);
       if (url.pathname.startsWith('/api/pairing/')) return await pairingRoute(request,env);
       if (url.pathname.startsWith('/api/remote/')) return await remoteRoute(request,env);
       if (url.pathname === '/api/history' || url.pathname === '/api/danmaku/settings') return await historyRoute(request,env);
@@ -58,6 +74,5 @@ export default {
       if (url.pathname === '/api/media' && ['GET', 'HEAD'].includes(request.method)) return await streamMedia(request);
       return Response.json({ error: '找不到此功能或不支援此請求方式。' }, { status: 404 });
     } catch (error) { return errorResponse(error); }
-  },
-};
+}
 

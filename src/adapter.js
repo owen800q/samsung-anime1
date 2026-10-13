@@ -3,6 +3,18 @@
 export class PlaybackError extends Error {
     constructor(message, status = 502) { super(message); this.status = status; }
 }
+// The packaged Samsung TV app (tv/) loads from file:// and calls this Worker directly.
+// It is recognised by a TV user agent with a file/opaque (or absent) origin.
+export function tvAppRequest(request) {
+    const origin = request.headers.get("origin");
+    return /Tizen|SMART-TV/i.test(request.headers.get("user-agent") || "") && (!origin || origin === "null" || origin === "file://");
+}
+// Same-origin pages and the TV app only; other websites cannot use the API.
+export function allowedCaller(request) {
+    if (tvAppRequest(request)) return true;
+    const origin = request.headers.get("origin");
+    return !((origin && origin !== new URL(request.url).origin) || request.headers.get("sec-fetch-site") === "cross-site");
+}
 const decoder = new TextDecoder();
 const UA = "Mozilla/5.0 Anime1TV/1.0";
 export function episodeUrl(input) {
@@ -355,7 +367,7 @@ export async function streamMedia(request) {
     if (range)
         headers.set("Range", range);
     const response = await upstream(ticket.url, { method: request.method === "HEAD" ? "HEAD" : "GET", headers });
-    const output = new Headers({ "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer", "Cross-Origin-Resource-Policy": "same-origin" });
+    const output = new Headers({ "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer", "Cross-Origin-Resource-Policy": tvAppRequest(request) ? "cross-origin" : "same-origin" });
     if (response.status === 416) {
         const cr = response.headers.get("Content-Range");
         if (cr)

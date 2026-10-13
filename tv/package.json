@@ -1,0 +1,20 @@
+{
+  "name": "anime1-tv-tizen",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Anime1 TV · Samsung Tizen app (remote-control UI over the samsung-anime1 Worker API)",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "package": "npm run build && node scripts/package-wgt.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "preact": "10.24.3"
+  },
+  "devDependencies": {
+    "vite": "5.4.11"
+  }
+}

@@ -1,3 +1,4 @@
+import { allowedCaller } from './adapter.js';
 // Short-lived invitations in the existing WATCH_HISTORY Durable Object namespace.
 const PAIR_TTL = 5 * 60 * 1000;
 const PAIR_DELIVERY_TTL = 60 * 1000;
@@ -32,8 +33,8 @@ export async function pairBody(request, noun = '配對') {
   finally { reader.releaseLock(); }
 }
 export async function pairingRoute(request, env) {
-  const url = new URL(request.url), origin = request.headers.get('origin');
-  if ((origin && origin !== url.origin) || request.headers.get('sec-fetch-site') === 'cross-site') return pairJSON({error: '請從本站進行配對。'}, 403);
+  const url = new URL(request.url);
+  if (!allowedCaller(request)) return pairJSON({error: '請從本站進行配對。'}, 403);
   if (request.method !== 'POST') return pairJSON({error: 'Method not allowed'}, 405);
   const token = request.headers.get('authorization')?.match(/^Bearer ([a-f0-9]{32})$/)?.[1];
   if (!token) return pairJSON({error: '請先啟用此瀏覽器的觀看紀錄。'}, 401);

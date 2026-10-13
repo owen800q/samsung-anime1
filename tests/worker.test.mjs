@@ -99,3 +99,23 @@ test('upstream denial is surfaced without retrying to bypass it', async t => {
   assert.match((await response.json()).error, /403/);
   assert.equal(requests.filter(r => r.url.includes('/1959/')).length, 1);
 });
+
+test('the packaged Samsung TV app (file:// origin, TV user agent) may call the API with CORS', async t => {
+  const tv = {'User-Agent':'Mozilla/5.0 (SMART-TV; LINUX; Tizen 6.0) AppleWebKit/537.36 TV Safari/537.36', Origin:'null', 'Sec-Fetch-Site':'cross-site'};
+  const health = await call('/api/health', {headers:tv});
+  assert.equal(health.status, 200);
+  assert.equal(health.headers.get('access-control-allow-origin'), 'null');
+  const preflight = await call('/api/history', {method:'OPTIONS', headers:{...tv, 'Access-Control-Request-Headers':'authorization'}});
+  assert.equal(preflight.status, 204);
+  assert.match(preflight.headers.get('access-control-allow-headers'), /Authorization/);
+  // The same opaque origin from a desktop browser, or a TV page on another website, stays blocked.
+  assert.equal((await call('/api/health', {headers:{Origin:'null'}})).status, 403);
+  assert.equal((await call('/api/health', {headers:{...tv, Origin:'https://evil.test'}})).status, 403);
+  assert.equal((await call('/api/health')).headers.get('access-control-allow-origin'), null);
+  mockUpstream(t, '30070');
+  const payload = await (await call('/api/resolve', {...post({url:'https://anime1.me/30070'}), headers:{...tv, 'Content-Type':'application/json'}})).json();
+  const media = await call(payload.media, {headers:{'User-Agent':tv['User-Agent'], Range:'bytes=500-503'}});
+  assert.equal(media.status, 206);
+  assert.equal(media.headers.get('cross-origin-resource-policy'), 'cross-origin');
+  assert.equal((await call(payload.media, {headers:{Range:'bytes=500-503'}})).headers.get('cross-origin-resource-policy'), 'same-origin');
+});

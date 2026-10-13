@@ -2,6 +2,10 @@
 
 A standalone, anonymous player designed for Samsung TV browsers. No login, SDK, external fonts, CDN scripts, API keys, or browser-side playback cookies are required. This is an independent compatibility interface, not the official Anime1 website.
 
+## Samsung TV app
+
+`tv/` packages a Tizen app for Samsung TVs with remote-control navigation (sidebar, poster grids, full-screen player, colour keys) modelled on samsung-hongguo-drama. It uses this Worker for every feature: catalogue, search, Bangumi details and comments, playback with resume, cloud history, danmaku, QR pairing and phone remote control. Build and install with `cd tv && npm install && npm run package -- --profile <certificate-profile>`. The Worker must be deployed with TV-app (`file://` origin) support first. See [Samsung TV app](docs/samsung-tv-app.md).
+
 ## Deploy
 
 GitHub checks confirm the existing integration is **Workers Builds: samsung-anime1**. The default configuration targets that connected Worker:

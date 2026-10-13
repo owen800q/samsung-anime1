@@ -6,6 +6,18 @@ const CATALOG_SEED = {"updatedAt":"2026-09-10T16:32:55.820Z","entries":[{"id":19
 class PlaybackError extends Error {
     constructor(message, status = 502) { super(message); this.status = status; }
 }
+// The packaged Samsung TV app (tv/) loads from file:// and calls this Worker directly.
+// It is recognised by a TV user agent with a file/opaque (or absent) origin.
+function tvAppRequest(request) {
+    const origin = request.headers.get("origin");
+    return /Tizen|SMART-TV/i.test(request.headers.get("user-agent") || "") && (!origin || origin === "null" || origin === "file://");
+}
+// Same-origin pages and the TV app only; other websites cannot use the API.
+function allowedCaller(request) {
+    if (tvAppRequest(request)) return true;
+    const origin = request.headers.get("origin");
+    return !((origin && origin !== new URL(request.url).origin) || request.headers.get("sec-fetch-site") === "cross-site");
+}
 const decoder = new TextDecoder();
 const UA = "Mozilla/5.0 Anime1TV/1.0";
 function episodeUrl(input) {
@@ -358,7 +370,7 @@ async function streamMedia(request) {
     if (range)
         headers.set("Range", range);
     const response = await upstream(ticket.url, { method: request.method === "HEAD" ? "HEAD" : "GET", headers });
-    const output = new Headers({ "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer", "Cross-Origin-Resource-Policy": "same-origin" });
+    const output = new Headers({ "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer", "Cross-Origin-Resource-Policy": tvAppRequest(request) ? "cross-origin" : "same-origin" });
     if (response.status === 416) {
         const cr = response.headers.get("Content-Range");
         if (cr)
@@ -1117,8 +1129,8 @@ async function pairBody(request, noun = '配對') {
   finally { reader.releaseLock(); }
 }
 async function pairingRoute(request, env) {
-  const url = new URL(request.url), origin = request.headers.get('origin');
-  if ((origin && origin !== url.origin) || request.headers.get('sec-fetch-site') === 'cross-site') return pairJSON({error: '請從本站進行配對。'}, 403);
+  const url = new URL(request.url);
+  if (!allowedCaller(request)) return pairJSON({error: '請從本站進行配對。'}, 403);
   if (request.method !== 'POST') return pairJSON({error: 'Method not allowed'}, 405);
   const token = request.headers.get('authorization')?.match(/^Bearer ([a-f0-9]{32})$/)?.[1];
   if (!token) return pairJSON({error: '請先啟用此瀏覽器的觀看紀錄。'}, 401);
@@ -1580,14 +1592,30 @@ async function requestJson(request) {
   try { return JSON.parse(text + decoder.decode()); } catch { throw new PlaybackError('影片資料無效。', 400); }
 }
 
+// The TV app's origin is opaque ("null"); answer it with CORS so the Tizen runtime accepts the responses.
+const TV_CORS = { 'Access-Control-Allow-Headers': 'Authorization, Content-Type, Range', 'Access-Control-Allow-Methods': 'GET, HEAD, POST, PUT', 'Access-Control-Max-Age': '600', 'Vary': 'Origin' };
+function withTvCors(request, response) {
+  if (response.status === 101 || response.webSocket) return response;
+  const out = new Response(response.body, response);
+  out.headers.set('Access-Control-Allow-Origin', request.headers.get('origin') || '*');
+  for (const [key, value] of Object.entries(TV_CORS)) out.headers.set(key, value);
+  return out;
+}
+
 // API routes (pairing, remote, history, catalogue, playback) run before static assets.
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (!url.pathname.startsWith('/api/')) return env.ASSETS.fetch(request);
+    if (!tvAppRequest(request)) return route(request, env, url);
+    if (request.method === 'OPTIONS') return withTvCors(request, new Response(null, { status: 204 }));
+    return withTvCors(request, await route(request, env, url));
+  },
+};
+
+async function route(request, env, url) {
     try {
-      const origin = request.headers.get('origin');
-      if ((origin && origin !== url.origin) || request.headers.get('sec-fetch-site') === 'cross-site') throw new PlaybackError('請從播放器網頁開啟影片。', 403);
+      if (!allowedCaller(request)) throw new PlaybackError('請從播放器網頁開啟影片。', 403);
       if (url.pathname.startsWith('/api/pairing/')) return await pairingRoute(request,env);
       if (url.pathname.startsWith('/api/remote/')) return await remoteRoute(request,env);
       if (url.pathname === '/api/history' || url.pathname === '/api/danmaku/settings') return await historyRoute(request,env);
@@ -1616,6 +1644,5 @@ export default {
       if (url.pathname === '/api/media' && ['GET', 'HEAD'].includes(request.method)) return await streamMedia(request);
       return Response.json({ error: '找不到此功能或不支援此請求方式。' }, { status: 404 });
     } catch (error) { return errorResponse(error); }
-  },
-};
+}
 
