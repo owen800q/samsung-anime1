@@ -4,10 +4,13 @@ export class PlaybackError extends Error {
     constructor(message, status = 502) { super(message); this.status = status; }
 }
 // The packaged Samsung TV app (tv/) loads from file:// and calls this Worker directly.
-// It is recognised by a TV user agent with a file/opaque (or absent) origin.
+// It is recognised by a TV user agent with a file/opaque (or absent) origin. Real TVs also
+// send cross-site fetches without any Origin; browsers always attach Origin to cross-site
+// cors and WebSocket requests, so no website can produce that combination.
 export function tvAppRequest(request) {
-    const origin = request.headers.get("origin");
-    return /Tizen|SMART-TV/i.test(request.headers.get("user-agent") || "") && (!origin || origin === "null" || origin === "file://");
+    const h = request.headers, origin = h.get("origin");
+    if (!origin && h.get("sec-fetch-site") === "cross-site" && ["cors", "websocket"].includes(h.get("sec-fetch-mode"))) return true;
+    return /Tizen|SMART-TV/i.test(h.get("user-agent") || "") && (!origin || origin === "null" || origin === "file://");
 }
 // Same-origin pages and the TV app only; other websites cannot use the API.
 export function allowedCaller(request) {

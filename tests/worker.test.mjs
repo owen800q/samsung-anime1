@@ -112,6 +112,12 @@ test('the packaged Samsung TV app (file:// origin, TV user agent) may call the A
   assert.equal((await call('/api/health', {headers:{Origin:'null'}})).status, 403);
   assert.equal((await call('/api/health', {headers:{...tv, Origin:'https://evil.test'}})).status, 403);
   assert.equal((await call('/api/health')).headers.get('access-control-allow-origin'), null);
+  // Real TVs send cross-site fetches with no Origin (and their own user agent).
+  const bare = await call('/api/health', {headers:{'Sec-Fetch-Site':'cross-site', 'Sec-Fetch-Mode':'cors'}});
+  assert.equal(bare.status, 200);
+  assert.equal(bare.headers.get('access-control-allow-origin'), '*');
+  // Cross-site navigations and embeds from other websites stay blocked.
+  for (const mode of ['navigate', 'no-cors']) assert.equal((await call('/api/health', {headers:{'Sec-Fetch-Site':'cross-site', 'Sec-Fetch-Mode':mode}})).status, 403);
   mockUpstream(t, '30070');
   const payload = await (await call('/api/resolve', {...post({url:'https://anime1.me/30070'}), headers:{...tv, 'Content-Type':'application/json'}})).json();
   const media = await call(payload.media, {headers:{'User-Agent':tv['User-Agent'], Range:'bytes=500-503'}});
