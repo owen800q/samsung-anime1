@@ -71,7 +71,7 @@ export class WatchHistory {
     let data;try{data=await request.json();}catch{}
     const text=(x,n)=>typeof x==='string'&&x.length<=n;
     if(request.method!=='PUT'||!data||!Number.isSafeInteger(data.id)||data.id<=0||!text(data.title,200)||!text(data.year,20)||data.bgmId!==null&&!(Number.isSafeInteger(data.bgmId)&&data.bgmId>0)||!Array.isArray(data.aliases)||data.aliases.length>20||!data.aliases.every(x=>text(x,200)))return historyResponse({error:'Invalid match'},400);
-    const entry={title:data.title,year:data.year,bgmId:data.bgmId,aliases:data.aliases,...(data.bgmId?{}:{expires:Date.now()+6*3600000})};
+    const entry={v:Number.isSafeInteger(data.v)?data.v:0,title:data.title,year:data.year,bgmId:data.bgmId,aliases:data.aliases,...(data.bgmId?{}:{expires:Date.now()+6*3600000})};
     await this.storage.put('tm:'+data.id,entry);return historyResponse({ok:true});
   }
   // Serialise refreshes: Supabase rotates refresh tokens, so two concurrent refreshes would race.

@@ -700,6 +700,8 @@ let catalogueSnapshot = null;
 // Bangumi matches found at runtime live in one Durable Object so every isolate sees them:
 // the Cache API is a no-op on workers.dev, and the home grid only shows covers for mapped titles.
 let matchStore = null;
+// Bump when matching improves: stored misses from an older matcher are then retried instead of trusted.
+const MATCH_VERSION = 2;
 function useCatalogueStore(env) {
   if (matchStore || !env?.WATCH_HISTORY) return;
   const call = (init, query = '') => env.WATCH_HISTORY.get(env.WATCH_HISTORY.idFromName('title-match:v1')).fetch('https://history.internal/title-matches' + query, init);
@@ -752,7 +754,7 @@ async function catalogueIndex() {
       // A stored entry applies only while the source still lists the same title and year.
       const found=stored[r[0]],current=found&&found.title===plainText(r[1])&&found.year===String(r[3]||'');
       if(!match&&current&&found.bgmId)match=found;
-      return {...(!match&&current&&found.expires>Date.now()?{bgmMissing:true}:{}),id:r[0],title:plainText(r[1]),episodes:plainText(String(r[2]||'')),year:String(r[3]||''),season:String(r[4]||''),bgmId:match?.bgmId||null,format:String(r[2]).includes('劇場版')?'movie':match?.format||(/^(OVA|SP)/.test(String(r[2]))?'ova':'unknown'),aliases:match?.aliases||[]};
+      return {...(!match&&current&&found.v===MATCH_VERSION&&found.expires>Date.now()?{bgmMissing:true}:{}),id:r[0],title:plainText(r[1]),episodes:plainText(String(r[2]||'')),year:String(r[3]||''),season:String(r[4]||''),bgmId:match?.bgmId||null,format:String(r[2]).includes('劇場版')?'movie':match?.format||(/^(OVA|SP)/.test(String(r[2]))?'ova':'unknown'),aliases:match?.aliases||[]};
     });
     const value={items,stale:false};catalogueSnapshot={value,expires:Date.now()+300000};return value;
   } catch {const value={items:CATALOG_SEED.entries,stale:true};catalogueSnapshot={value,expires:Date.now()+30000};return value;}
@@ -874,7 +876,7 @@ async function resolveCatalogueTitle(item, env = {}, lookup = matcherConfigured(
   const stored=await matchStore?.get(item.id).catch(()=>null);
   if(stored&&stored.title===item.title&&stored.year===item.year){
     if(stored.bgmId)return {...item,bgmId:stored.bgmId,aliases:stored.aliases};
-    if(stored.expires>Date.now())return {...item,bgmMissing:true};
+    if(stored.v===MATCH_VERSION&&stored.expires>Date.now())return {...item,bgmMissing:true};
   }
   const value=await titleMatchCached('bangumi:'+key,async()=>{
     const candidates=new Map();let failure;
@@ -895,7 +897,7 @@ async function resolveCatalogueTitle(item, env = {}, lookup = matcherConfigured(
     if(!selected&&failure)throw failure;
     const value=selected?{bgmId:selected.id,aliases:[...new Set([...(item.aliases||[]),selected.title,...selected.aliases])]}:null;
     // Remember a miss only when a matcher was asked; without one, configuring it later should retry.
-    if(value||matcherConfigured(env))await matchStore?.put({id:item.id,title:item.title,year:item.year,bgmId:value?.bgmId??null,aliases:value?.aliases??[]}).catch(()=>{});
+    if(value||matcherConfigured(env))await matchStore?.put({v:MATCH_VERSION,id:item.id,title:item.title,year:item.year,bgmId:value?.bgmId??null,aliases:value?.aliases??[]}).catch(()=>{});
     return value;
   },lookup,diagnostic);
   // Let browse results in this isolate show the match before the next catalogue refresh.
@@ -1598,7 +1600,7 @@ export class WatchHistory {
     let data;try{data=await request.json();}catch{}
     const text=(x,n)=>typeof x==='string'&&x.length<=n;
     if(request.method!=='PUT'||!data||!Number.isSafeInteger(data.id)||data.id<=0||!text(data.title,200)||!text(data.year,20)||data.bgmId!==null&&!(Number.isSafeInteger(data.bgmId)&&data.bgmId>0)||!Array.isArray(data.aliases)||data.aliases.length>20||!data.aliases.every(x=>text(x,200)))return historyResponse({error:'Invalid match'},400);
-    const entry={title:data.title,year:data.year,bgmId:data.bgmId,aliases:data.aliases,...(data.bgmId?{}:{expires:Date.now()+6*3600000})};
+    const entry={v:Number.isSafeInteger(data.v)?data.v:0,title:data.title,year:data.year,bgmId:data.bgmId,aliases:data.aliases,...(data.bgmId?{}:{expires:Date.now()+6*3600000})};
     await this.storage.put('tm:'+data.id,entry);return historyResponse({ok:true});
   }
   // Serialise refreshes: Supabase rotates refresh tokens, so two concurrent refreshes would race.
