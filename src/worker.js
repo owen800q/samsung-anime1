@@ -1,6 +1,6 @@
 import { searchDanmaku, resolveDanmaku, getDanmaku, dandanConfigured, matchDandanplay, fallbackDanmaku } from './danmaku-server.js';
 import { resolveEpisode, streamMedia, searchEpisodes, listEpisodes, errorResponse, PlaybackError, allowedCaller, tvAppRequest } from './adapter.js';
-import { browseCatalogue, catalogueMetadata, catalogueSeries, catalogueCover, catalogueItem, catalogueComments } from './catalog.js';
+import { browseCatalogue, catalogueMetadata, catalogueSeries, catalogueCover, catalogueItem, catalogueComments, useCatalogueStore } from './catalog.js';
 import { historyRoute } from './sync-server.js';
 import { pairingRoute } from './pairing-server.js';
 import { remoteRoute } from './remote-server.js';
@@ -46,6 +46,7 @@ export default {
 async function route(request, env, url) {
     try {
       if (!allowedCaller(request)) throw new PlaybackError('請從播放器網頁開啟影片。', 403);
+      useCatalogueStore(env);
       if (url.pathname.startsWith('/api/pairing/')) return await pairingRoute(request,env);
       if (url.pathname.startsWith('/api/remote/')) return await remoteRoute(request,env);
       if (url.pathname === '/api/history' || url.pathname === '/api/danmaku/settings') return await historyRoute(request,env);

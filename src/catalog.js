@@ -7,6 +7,17 @@ const CATALOG_UA = 'SamsungAnime1/1.1 (https://github.com/owen800q/Samsung-anime
 const catalogMemory = new Map();
 const catalogPending = new Map();
 let catalogueSnapshot = null;
+// Bangumi matches found at runtime live in one Durable Object so every isolate sees them:
+// the Cache API is a no-op on workers.dev, and the home grid only shows covers for mapped titles.
+let matchStore = null;
+export function useCatalogueStore(env) {
+  if (matchStore || !env?.WATCH_HISTORY) return;
+  const call = (init) => env.WATCH_HISTORY.get(env.WATCH_HISTORY.idFromName('title-match:v1')).fetch('https://history.internal/title-matches', init);
+  matchStore = {
+    list: async () => { const r = await call(); if (!r.ok) { await r.body?.cancel(); throw new Error('Match store unavailable'); } return (await r.json()).matches || {}; },
+    put: async entry => { const r = await call({method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(entry)}); await r.body?.cancel(); },
+  };
+}
 const seedById = new Map(CATALOG_SEED.entries.map(item => [item.id,item]));
 const normalTitle = s => String(s).normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]/gu,'');
 export const GENRES = ['奇幻','戀愛','搞笑','日常','科幻','冒險','戰鬥','懸疑','運動','音樂','治癒','機戰'];
@@ -44,9 +55,13 @@ export async function catalogueIndex() {
   try {
     const rows=await catalogueJSON('https://anime1.me/animelist.json',{},300);
     if(!Array.isArray(rows)||rows.length<10)throw new Error('Unexpected source catalogue');
+    const stored=await matchStore?.list().catch(()=>null)||{};
     const items=rows.filter(r=>Array.isArray(r)&&Number.isInteger(r[0])&&r[0]>0&&typeof r[1]==='string').map(r=>{
-      const seed=seedById.get(r[0]);const match=seed&&normalTitle(seed.title)===normalTitle(r[1])?seed:null;
-      return {id:r[0],title:plainText(r[1]),episodes:plainText(String(r[2]||'')),year:String(r[3]||''),season:String(r[4]||''),bgmId:match?.bgmId||null,format:String(r[2]).includes('劇場版')?'movie':match?.format||(/^(OVA|SP)/.test(String(r[2]))?'ova':'unknown'),aliases:match?.aliases||[]};
+      const seed=seedById.get(r[0]);let match=seed&&normalTitle(seed.title)===normalTitle(r[1])?seed:null;
+      // A stored entry applies only while the source still lists the same title and year.
+      const found=stored[r[0]],current=found&&found.title===plainText(r[1])&&found.year===String(r[3]||'');
+      if(!match&&current&&found.bgmId)match=found;
+      return {...(!match&&current&&found.expires>Date.now()?{bgmMissing:true}:{}),id:r[0],title:plainText(r[1]),episodes:plainText(String(r[2]||'')),year:String(r[3]||''),season:String(r[4]||''),bgmId:match?.bgmId||null,format:String(r[2]).includes('劇場版')?'movie':match?.format||(/^(OVA|SP)/.test(String(r[2]))?'ova':'unknown'),aliases:match?.aliases||[]};
     });
     const value={items,stale:false};catalogueSnapshot={value,expires:Date.now()+300000};return value;
   } catch {const value={items:CATALOG_SEED.entries,stale:true};catalogueSnapshot={value,expires:Date.now()+30000};return value;}
@@ -158,7 +173,7 @@ export async function catalogueCover(id) {
 
 const resolvedCatalogueTitles = new Map();
 async function resolveCatalogueTitle(item, env = {}, lookup = matcherConfigured(env)) {
-  if(item.bgmId)return item;
+  if(item.bgmId||item.bgmMissing)return item;
   const diagnostic={scope:'bangumi',seriesId:item.id};
   if(env.ASSETS&&!matcherConfigured(env))titleMatchLog('configuration',{...diagnostic,reason:'missing_secret'});
   const key=JSON.stringify([item.id,item.title,item.year]);
@@ -181,8 +196,13 @@ async function resolveCatalogueTitle(item, env = {}, lookup = matcherConfigured(
     const selected=await chooseTitle(item,[...candidates.values()],env,diagnostic);
     // A miss after a failed search may just be the outage: report it as a failure (short retry), not a 1-hour miss.
     if(!selected&&failure)throw failure;
-    return selected?{bgmId:selected.id,aliases:[...new Set([...(item.aliases||[]),selected.title,...selected.aliases])]}:null;
+    const value=selected?{bgmId:selected.id,aliases:[...new Set([...(item.aliases||[]),selected.title,...selected.aliases])]}:null;
+    // Remember a miss only when a matcher was asked; without one, configuring it later should retry.
+    if(value||matcherConfigured(env))await matchStore?.put({id:item.id,title:item.title,year:item.year,bgmId:value?.bgmId??null,aliases:value?.aliases??[]}).catch(()=>{});
+    return value;
   },lookup,diagnostic);
+  // Let browse results in this isolate show the match before the next catalogue refresh.
+  const listed=value&&catalogueSnapshot?.value.items.find(x=>x.id===item.id&&x.title===item.title);if(listed&&!listed.bgmId)Object.assign(listed,value);
   if(value){while(resolvedCatalogueTitles.size>=300)resolvedCatalogueTitles.delete(resolvedCatalogueTitles.keys().next().value);resolvedCatalogueTitles.set(key,{value,expires:Date.now()+3600000});}
   return value?{...item,...value}:item;
 }

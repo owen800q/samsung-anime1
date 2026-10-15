@@ -696,6 +696,17 @@ const CATALOG_UA = 'SamsungAnime1/1.1 (https://github.com/owen800q/Samsung-anime
 const catalogMemory = new Map();
 const catalogPending = new Map();
 let catalogueSnapshot = null;
+// Bangumi matches found at runtime live in one Durable Object so every isolate sees them:
+// the Cache API is a no-op on workers.dev, and the home grid only shows covers for mapped titles.
+let matchStore = null;
+function useCatalogueStore(env) {
+  if (matchStore || !env?.WATCH_HISTORY) return;
+  const call = (init) => env.WATCH_HISTORY.get(env.WATCH_HISTORY.idFromName('title-match:v1')).fetch('https://history.internal/title-matches', init);
+  matchStore = {
+    list: async () => { const r = await call(); if (!r.ok) { await r.body?.cancel(); throw new Error('Match store unavailable'); } return (await r.json()).matches || {}; },
+    put: async entry => { const r = await call({method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(entry)}); await r.body?.cancel(); },
+  };
+}
 const seedById = new Map(CATALOG_SEED.entries.map(item => [item.id,item]));
 const normalTitle = s => String(s).normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]/gu,'');
 const GENRES = ['奇幻','戀愛','搞笑','日常','科幻','冒險','戰鬥','懸疑','運動','音樂','治癒','機戰'];
@@ -733,9 +744,13 @@ async function catalogueIndex() {
   try {
     const rows=await catalogueJSON('https://anime1.me/animelist.json',{},300);
     if(!Array.isArray(rows)||rows.length<10)throw new Error('Unexpected source catalogue');
+    const stored=await matchStore?.list().catch(()=>null)||{};
     const items=rows.filter(r=>Array.isArray(r)&&Number.isInteger(r[0])&&r[0]>0&&typeof r[1]==='string').map(r=>{
-      const seed=seedById.get(r[0]);const match=seed&&normalTitle(seed.title)===normalTitle(r[1])?seed:null;
-      return {id:r[0],title:plainText(r[1]),episodes:plainText(String(r[2]||'')),year:String(r[3]||''),season:String(r[4]||''),bgmId:match?.bgmId||null,format:String(r[2]).includes('劇場版')?'movie':match?.format||(/^(OVA|SP)/.test(String(r[2]))?'ova':'unknown'),aliases:match?.aliases||[]};
+      const seed=seedById.get(r[0]);let match=seed&&normalTitle(seed.title)===normalTitle(r[1])?seed:null;
+      // A stored entry applies only while the source still lists the same title and year.
+      const found=stored[r[0]],current=found&&found.title===plainText(r[1])&&found.year===String(r[3]||'');
+      if(!match&&current&&found.bgmId)match=found;
+      return {...(!match&&current&&found.expires>Date.now()?{bgmMissing:true}:{}),id:r[0],title:plainText(r[1]),episodes:plainText(String(r[2]||'')),year:String(r[3]||''),season:String(r[4]||''),bgmId:match?.bgmId||null,format:String(r[2]).includes('劇場版')?'movie':match?.format||(/^(OVA|SP)/.test(String(r[2]))?'ova':'unknown'),aliases:match?.aliases||[]};
     });
     const value={items,stale:false};catalogueSnapshot={value,expires:Date.now()+300000};return value;
   } catch {const value={items:CATALOG_SEED.entries,stale:true};catalogueSnapshot={value,expires:Date.now()+30000};return value;}
@@ -847,7 +862,7 @@ async function catalogueCover(id) {
 
 const resolvedCatalogueTitles = new Map();
 async function resolveCatalogueTitle(item, env = {}, lookup = matcherConfigured(env)) {
-  if(item.bgmId)return item;
+  if(item.bgmId||item.bgmMissing)return item;
   const diagnostic={scope:'bangumi',seriesId:item.id};
   if(env.ASSETS&&!matcherConfigured(env))titleMatchLog('configuration',{...diagnostic,reason:'missing_secret'});
   const key=JSON.stringify([item.id,item.title,item.year]);
@@ -870,8 +885,13 @@ async function resolveCatalogueTitle(item, env = {}, lookup = matcherConfigured(
     const selected=await chooseTitle(item,[...candidates.values()],env,diagnostic);
     // A miss after a failed search may just be the outage: report it as a failure (short retry), not a 1-hour miss.
     if(!selected&&failure)throw failure;
-    return selected?{bgmId:selected.id,aliases:[...new Set([...(item.aliases||[]),selected.title,...selected.aliases])]}:null;
+    const value=selected?{bgmId:selected.id,aliases:[...new Set([...(item.aliases||[]),selected.title,...selected.aliases])]}:null;
+    // Remember a miss only when a matcher was asked; without one, configuring it later should retry.
+    if(value||matcherConfigured(env))await matchStore?.put({id:item.id,title:item.title,year:item.year,bgmId:value?.bgmId??null,aliases:value?.aliases??[]}).catch(()=>{});
+    return value;
   },lookup,diagnostic);
+  // Let browse results in this isolate show the match before the next catalogue refresh.
+  const listed=value&&catalogueSnapshot?.value.items.find(x=>x.id===item.id&&x.title===item.title);if(listed&&!listed.bgmId)Object.assign(listed,value);
   if(value){while(resolvedCatalogueTitles.size>=300)resolvedCatalogueTitles.delete(resolvedCatalogueTitles.keys().next().value);resolvedCatalogueTitles.set(key,{value,expires:Date.now()+3600000});}
   return value?{...item,...value}:item;
 }
@@ -1522,6 +1542,8 @@ export class WatchHistory {
     if(path.startsWith('/remote/'))return this.remote.fetch(request);
     if(path==='/pairing-export'||path==='/pairing-import')return pairingHistory(this.storage,request,validProgress,validDanmakuSetting);
     if(new URL(request.url).pathname==='/danmaku-settings')return this.danmakuSettings(request);
+    // Internal only, like /jev-session: asked on the 'title-match:v1' instance by catalog.js.
+    if(new URL(request.url).pathname==='/title-matches')return this.titleMatches(request);
     // Internal only: historyRoute never forwards this path, and only the 'jev-session:v1' instance is asked.
     if(new URL(request.url).pathname==='/jev-session')return this.jevSession(request);
     if(request.method==='GET'){
@@ -1559,6 +1581,15 @@ export class WatchHistory {
       for(const removed of index.splice(500))await tx.delete('dm:'+removed);
       await tx.put(key,entry);await tx.put('dm-index',index);return historyResponse({entry});
     });
+  }
+  // Runtime Bangumi matches keyed by Anime1 series id. Misses expire so new Bangumi entries are found later.
+  async titleMatches(request){
+    if(request.method==='GET'){const matches={};for(const [key,value] of await this.storage.list({prefix:'tm:'}))matches[key.slice(3)]=value;return historyResponse({matches});}
+    let data;try{data=await request.json();}catch{}
+    const text=(x,n)=>typeof x==='string'&&x.length<=n;
+    if(request.method!=='PUT'||!data||!Number.isSafeInteger(data.id)||data.id<=0||!text(data.title,200)||!text(data.year,20)||data.bgmId!==null&&!(Number.isSafeInteger(data.bgmId)&&data.bgmId>0)||!Array.isArray(data.aliases)||data.aliases.length>20||!data.aliases.every(x=>text(x,200)))return historyResponse({error:'Invalid match'},400);
+    const entry={title:data.title,year:data.year,bgmId:data.bgmId,aliases:data.aliases,...(data.bgmId?{}:{expires:Date.now()+6*3600000})};
+    await this.storage.put('tm:'+data.id,entry);return historyResponse({ok:true});
   }
   // Serialise refreshes: Supabase rotates refresh tokens, so two concurrent refreshes would race.
   async jevSession(request){
@@ -1634,6 +1665,7 @@ export default {
 async function route(request, env, url) {
     try {
       if (!allowedCaller(request)) throw new PlaybackError('請從播放器網頁開啟影片。', 403);
+      useCatalogueStore(env);
       if (url.pathname.startsWith('/api/pairing/')) return await pairingRoute(request,env);
       if (url.pathname.startsWith('/api/remote/')) return await remoteRoute(request,env);
       if (url.pathname === '/api/history' || url.pathname === '/api/danmaku/settings') return await historyRoute(request,env);
