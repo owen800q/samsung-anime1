@@ -107,18 +107,19 @@ export async function catalogueSeries(id, page) {
   if(!item)throw new PlaybackError('Anime1 目錄沒有這套動畫。',404);
   return listSeriesEpisodes(item.id,item.title,page);
 }
-export async function catalogueItem(id, env = {}) {
+// lookup: search Bangumi for an unmapped title. Exact Traditional/Simplified matches need no matcher secret.
+export async function catalogueItem(id, env = {}, lookup = matcherConfigured(env)) {
   if(!/^\d{1,10}$/.test(id||''))throw new PlaybackError('動畫編號無效。',400);
   const {items}=await catalogueIndex();const item=items.find(x=>x.id===Number(id));
   if(!item)throw new PlaybackError('目錄找不到這套動畫。',404);
-  const resolved=await resolveCatalogueTitle(item,env);
+  const resolved=await resolveCatalogueTitle(item,env,lookup);
   return {item:{...publicItem(resolved),aliases:resolved.aliases||[]}};
 }
 // Bangumi's website API exposes public short comments (the v0 API does not).
 // Keep this separate from metadata/episodes so an upstream outage cannot block playback.
 export async function catalogueComments(id, page = 1, env = {}) {
   if(!Number.isInteger(page)||page<1||page>500)throw new PlaybackError('評論頁碼無效。',400);
-  const {item}=await catalogueItem(id,env);
+  const {item}=await catalogueItem(id,env,true);
   if(!item.bgmId)return {comments:[],total:0,page,nextPage:null,bangumiUrl:null,matched:false};
   const limit=20,offset=(page-1)*limit;
   const bangumiUrl='https://bgm.tv/subject/'+item.bgmId+'/comments';
@@ -154,7 +155,7 @@ export async function catalogueCover(id) {
 
 
 const resolvedCatalogueTitles = new Map();
-async function resolveCatalogueTitle(item, env = {}) {
+async function resolveCatalogueTitle(item, env = {}, lookup = matcherConfigured(env)) {
   if(item.bgmId)return item;
   const diagnostic={scope:'bangumi',seriesId:item.id};
   if(env.ASSETS&&!matcherConfigured(env))titleMatchLog('configuration',{...diagnostic,reason:'missing_secret'});
@@ -174,7 +175,7 @@ async function resolveCatalogueTitle(item, env = {}) {
     if(!candidates.size&&failure)throw failure;
     const selected=await chooseTitle(item,[...candidates.values()],env,diagnostic);
     return selected?{bgmId:selected.id,aliases:[...new Set([...(item.aliases||[]),selected.title,...selected.aliases])]}:null;
-  },matcherConfigured(env),diagnostic);
+  },lookup,diagnostic);
   if(value){while(resolvedCatalogueTitles.size>=300)resolvedCatalogueTitles.delete(resolvedCatalogueTitles.keys().next().value);resolvedCatalogueTitles.set(key,{value,expires:Date.now()+3600000});}
   return value?{...item,...value}:item;
 }
