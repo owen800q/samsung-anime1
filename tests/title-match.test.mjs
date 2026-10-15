@@ -314,3 +314,9 @@ test('the Durable Object keeps the refreshed session and refuses unconfigured or
   assert.equal((await again.fetch(new Request('https://history.internal/jev-session'))).status,404);
   assert.equal((await new WatchHistory({storage},{}).fetch(new Request('https://history.internal/jev-session',{method:'POST'}))).status,404);
 });
+test('Traditional and Simplified titles match exactly without any matcher configured',async t=>{
+  t.mock.method(globalThis,'fetch',async()=>{throw new Error('no matcher call expected');});
+  const item={id:1957,title:'轉生就是劍 第二季',year:'2026',season:'秋'};
+  const candidates=[{id:544106,title:'转生之后的我变成了龙蛋',aliases:['転生したらドラゴンの卵だった'],year:'2026'},{id:412008,title:'转生就是剑 第二季',aliases:['転生したら剣でしたII','转生就是剑 第二季'],year:'2026'},{id:350224,title:'转生就是剑',aliases:[],year:'2022'}];
+  assert.equal((await chooseTitle(item,candidates,{}))?.id,412008);
+});
