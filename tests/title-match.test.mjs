@@ -320,3 +320,7 @@ test('Traditional and Simplified titles match exactly without any matcher config
   const candidates=[{id:544106,title:'转生之后的我变成了龙蛋',aliases:['転生したらドラゴンの卵だった'],year:'2026'},{id:412008,title:'转生就是剑 第二季',aliases:['転生したら剣でしたII','转生就是剑 第二季'],year:'2026'},{id:350224,title:'转生就是剑',aliases:[],year:'2022'}];
   assert.equal((await chooseTitle(item,candidates,{}))?.id,412008);
 });
+test('characters with several simplified forms still fold (戰 -> 战)',async()=>{
+  const {foldChinese}=await import('../src/zh-fold.js');
+  assert.equal(foldChinese('FX戰士久留美 轉生就是劍'),'FX战士久留美 转生就是剑');
+});

@@ -82,7 +82,7 @@ export async function titleMatchCached(key, load, allowLoad = true, context = {}
   if (titleMatchPending.size >= 4) { titleMatchLog('cache',{...context,reason:'busy'});return null; }
   const task = (async () => {
     const cache = globalThis.caches?.default;
-    const request = new Request('https://samsung-anime1-cache.invalid/title-match/v5/' + encodeURIComponent(key));
+    const request = new Request('https://samsung-anime1-cache.invalid/title-match/v6/' + encodeURIComponent(key));
     const hit = await cache?.match(request).catch(() => null);
     let data = null, ttl = 300, reason;
     if (hit) { const entry = await hit.json();data = entry.data;reason=entry.reason;ttl=Math.max(1,Math.floor((entry.expires-Date.now())/1000));reportHit(entry,'edge'); }

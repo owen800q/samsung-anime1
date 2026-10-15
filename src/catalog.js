@@ -1,5 +1,6 @@
 import { chooseTitle, titleQueries, titleMatchCached, titleMatchLog, itemYears, matcherConfigured, matchTitleKey } from './title-match.js';
 import { CATALOG_SEED } from './catalog-data.js';
+import { foldChinese } from './zh-fold.js';
 import { PlaybackError, plainText, listSeriesEpisodes } from './adapter.js';
 
 const CATALOG_UA = 'SamsungAnime1/1.1 (https://github.com/owen800q/Samsung-anime1)';
@@ -166,15 +167,20 @@ async function resolveCatalogueTitle(item, env = {}, lookup = matcherConfigured(
   const value=await titleMatchCached('bangumi:'+key,async()=>{
     const candidates=new Map();let failure;
     // A failing query (often the long full title) must not hide the shorter one that finds the show.
-    for(const query of titleQueries(item.title)){
+    // Bangumi names are Simplified, and its search answers HTTP 500 for some Traditional queries (FX戰士久留美).
+    for(const query of [...new Set([foldChinese(item.title),...titleQueries(item.title)])]){
       let result;
-      try{result=await catalogueJSON('https://api.bgm.tv/v0/search/subjects?limit=20',{method:'POST',signal:AbortSignal.timeout(10000),headers:{'Content-Type':'application/json'},body:JSON.stringify({keyword:query,filter:{type:[2],nsfw:false}})},3600);}
+      // Bangumi's search intermittently answers 500/502; one retry keeps a blip from caching a miss for an hour.
+      const search=()=>catalogueJSON('https://api.bgm.tv/v0/search/subjects?limit=20',{method:'POST',signal:AbortSignal.timeout(10000),headers:{'Content-Type':'application/json'},body:JSON.stringify({keyword:query,filter:{type:[2],nsfw:false}})},3600);
+      try{result=await search().catch(search);}
       catch(error){failure=error;titleMatchLog('search',{...diagnostic,reason:'candidate_error'});continue;}
       for(const x of result.data||[])if(x.type===2&&Number.isSafeInteger(x.id))candidates.set(x.id,{id:x.id,title:x.name_cn||x.name,aliases:[x.name,x.name_cn].filter(Boolean),year:String(x.date||'').slice(0,4),date:x.date});
       if([...candidates.values()].some(x=>itemYears(item).includes(x.year)&&[x.title,...x.aliases].some(n=>matchTitleKey(n)===matchTitleKey(item.title))))break;
     }
     if(!candidates.size&&failure)throw failure;
     const selected=await chooseTitle(item,[...candidates.values()],env,diagnostic);
+    // A miss after a failed search may just be the outage: report it as a failure (short retry), not a 1-hour miss.
+    if(!selected&&failure)throw failure;
     return selected?{bgmId:selected.id,aliases:[...new Set([...(item.aliases||[]),selected.title,...selected.aliases])]}:null;
   },lookup,diagnostic);
   if(value){while(resolvedCatalogueTitles.size>=300)resolvedCatalogueTitles.delete(resolvedCatalogueTitles.keys().next().value);resolvedCatalogueTitles.set(key,{value,expires:Date.now()+3600000});}
