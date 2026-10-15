@@ -32,3 +32,11 @@
   Cache-Control: public, max-age=0, must-revalidate
 /remote.css
   Cache-Control: public, max-age=0, must-revalidate
+
+# Over-the-air TV app updates (ota/build.mjs): builds are immutable, the manifest is always revalidated.
+/tv-app/v/*
+  Cache-Control: public, max-age=31536000, immutable
+  Access-Control-Allow-Origin: *
+/tv-app/manifest.json
+  Cache-Control: no-cache
+  Access-Control-Allow-Origin: *

@@ -50,12 +50,18 @@ In a desktop browser, arrows, Enter, Esc (Back), Space (play/pause), PageUp/Page
 
 ```sh
 cd tv
-npm run package -- --profile <samsung-certificate-profile>   # build/Anime1 TV.wgt
+npm run package -- --profile <samsung-certificate-profile>   # build/Anime1TV.wgt
 ANIME1_API=https://your-worker.example npm run package -- --profile <profile>   # another deployment
 scripts/tv.sh <tv-ip> <profile>   # build, sign, install and launch on a TV in Developer mode
 ```
 
-Signing and TV Developer-mode setup are the same as for samsung-hongguo-drama: a Samsung TV certificate profile whose distributor certificate lists the TV's DUID. The app ID is `Anime1TV01.Anime1TV` (package IDs must be 10 characters). Without the Tizen CLI, `npm run package` writes an unsigned widget.
+Signing and TV Developer-mode setup are the same as for samsung-hongguo-drama: a Samsung TV certificate profile whose distributor certificate lists the TV's DUID. The app ID is `Anime1TV01.Anime1TV` (package IDs must be 10 characters). Without the Tizen CLI, `npm run package` writes an unsigned widget, `build/Anime1TV-unsigned.wgt`.
+
+### Updates
+
+Installed TVs update themselves. The Worker build (`npm run build:tv-update`, run by `wrangler.jsonc`) publishes the TV app at `https://anime1.codeboxhk.com/tv-app/`. The app downloads a new build in the background and uses it from the next launch, so a push to `main` reaches TVs without reinstalling. See [ota/README.md](../ota/README.md).
+
+Every push to `main` also publishes a GitHub release with the widget (`.github/workflows/release.yml`). Reinstall it only after changing `tv/tizen/config.xml`, the icon or the loader. The release is signed when the repository has the certificate secrets listed in ota/README.md.
 
 The icon (`tv/tizen/icon.png`, source `icon-source.png`) was generated for this app; the website's `apple-touch-icon.png` uses the same artwork.
 
