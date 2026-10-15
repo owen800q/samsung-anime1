@@ -748,8 +748,9 @@ function metadata(subject, sourceId) {
   try {const u=new URL(image);if(u.protocol==='https:'&&u.hostname==='lain.bgm.tv'&&!u.port&&!u.username&&!u.password&&/^\/(?:r\/\d+\/)?pic\/cover\/[a-z]\/[a-zA-Z0-9_./-]+\.(?:jpg|png|webp)$/.test(u.pathname)&&!u.search&&!u.hash)safeImage=u.href;}catch{}
   return {id:sourceId,bgmId:subject.id,name:subject.name_cn||subject.name,summary:plainText(subject.summary||''),score:subject.rating?.total>0?subject.rating.score:null,ratingCount:subject.rating?.total||0,rank:Number.isInteger(subject.rating?.rank)&&subject.rating.rank>0?subject.rating.rank:null,tags:(subject.tags||[]).slice(0,8).map(t=>plainText(t.name)),cover:safeImage?'/api/cover?id='+sourceId:null,image:safeImage,bangumiUrl:'https://bgm.tv/subject/'+subject.id};
 }
-async function subjectMetadata(item) {
-  item = await resolveCatalogueTitle(item);
+// lookup is for single-title requests; grid batches stay cache-only so they never fan out into Bangumi searches.
+async function subjectMetadata(item, lookup = false) {
+  item = await resolveCatalogueTitle(item, {}, lookup);
   if(!item.bgmId)return null;
   return metadata(await catalogueJSON('https://api.bgm.tv/v0/subjects/'+item.bgmId,{},86400),item.id);
 }
@@ -788,7 +789,7 @@ async function catalogueMetadata(ids) {
   if(!/^\d+(?:,\d+){0,7}$/.test(ids||''))throw new PlaybackError('動畫資料編號無效。',400);
   const {items}=await catalogueIndex();const byId=new Map(items.map(x=>[x.id,x]));
   const requested=[...new Set(ids.split(',').map(Number))];const details={};let cursor=0;
-  await Promise.all(Array.from({length:Math.min(3,requested.length)},async()=>{while(cursor<requested.length){const id=requested[cursor++];try{const item=byId.get(id);const data=item?await subjectMetadata(item):null;if(data)delete data.image;details[id]=data;}catch{details[id]=null;}}}));
+  await Promise.all(Array.from({length:Math.min(3,requested.length)},async()=>{while(cursor<requested.length){const id=requested[cursor++];try{const item=byId.get(id);const data=item?await subjectMetadata(item,requested.length===1):null;if(data)delete data.image;details[id]=data;}catch{details[id]=null;}}}));
   return {details};
 }
 async function catalogueSeries(id, page) {
@@ -832,7 +833,7 @@ async function catalogueCover(id) {
   if(!/^\d{1,10}$/.test(id||''))throw new PlaybackError('封面編號無效。',400);
   const cache=globalThis.caches?.default;const key=new Request('https://samsung-anime1-cache.invalid/cover/'+id);
   const cached=await cache?.match(key).catch(()=>null);if(cached)return cached;
-  const {items}=await catalogueIndex();const item=items.find(x=>x.id===Number(id));const detail=item?await subjectMetadata(item):null;
+  const {items}=await catalogueIndex();const item=items.find(x=>x.id===Number(id));const detail=item?await subjectMetadata(item,true):null;
   if(!detail?.image)return new Response(null,{status:404});
   const response=await fetch(detail.image,{headers:{'User-Agent':CATALOG_UA},redirect:'manual',signal:AbortSignal.timeout(30000)});
   if(!response.ok||!/^image\/(?:jpeg|png|webp)(?:;|$)/i.test(response.headers.get('content-type')||'')){await response.body?.cancel();return new Response(null,{status:502});}
