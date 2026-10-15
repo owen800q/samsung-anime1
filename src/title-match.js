@@ -44,7 +44,8 @@ export function titleQueries(title) {
   // Substring search (動畫瘋) misses on spacing and mixed scripts: "SPY×FAMILY間諜家家酒" vs
   // "SPY×FAMILY 間諜家家酒 Season 3". Also try the longest CJK run and the leading Latin run.
   const cjk=[root,unseasoned].map(x=>(x.match(/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}ー・！!？?、，]+/gu)||[]).map(x=>x.replace(/[・！!？?、，]+$/,'')).sort((a,b)=>b.length-a.length)[0]).find(Boolean);
-  const latin=root.match(/^[A-Za-z0-9][A-Za-z0-9×.&'! ]*[A-Za-z0-9]/)?.[0];
+  // The Latin run may also follow the CJK name: "闇機 DARK MACHINE" is listed on Bangumi as "暗机 DARK MACHINE".
+  const latin=(root.match(/[A-Za-z0-9][A-Za-z0-9×.&'! ]*[A-Za-z0-9]/g)||[]).sort((a,b)=>b.length-a.length)[0];
   const parts=[cjk&&matchTitleKey(cjk).length>=3?cjk:'',latin&&matchTitleKey(latin).length>=4?latin:''];
   return [...new Set([title, root, unseasoned, ...parts].filter(x=>matchTitleKey(x).length>=2))].slice(0,5).map(x => x.slice(0,100));
 }

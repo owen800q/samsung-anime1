@@ -518,7 +518,8 @@ function titleQueries(title) {
   // Substring search (動畫瘋) misses on spacing and mixed scripts: "SPY×FAMILY間諜家家酒" vs
   // "SPY×FAMILY 間諜家家酒 Season 3". Also try the longest CJK run and the leading Latin run.
   const cjk=[root,unseasoned].map(x=>(x.match(/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}ー・！!？?、，]+/gu)||[]).map(x=>x.replace(/[・！!？?、，]+$/,'')).sort((a,b)=>b.length-a.length)[0]).find(Boolean);
-  const latin=root.match(/^[A-Za-z0-9][A-Za-z0-9×.&'! ]*[A-Za-z0-9]/)?.[0];
+  // The Latin run may also follow the CJK name: "闇機 DARK MACHINE" is listed on Bangumi as "暗机 DARK MACHINE".
+  const latin=(root.match(/[A-Za-z0-9][A-Za-z0-9×.&'! ]*[A-Za-z0-9]/g)||[]).sort((a,b)=>b.length-a.length)[0];
   const parts=[cjk&&matchTitleKey(cjk).length>=3?cjk:'',latin&&matchTitleKey(latin).length>=4?latin:''];
   return [...new Set([title, root, unseasoned, ...parts].filter(x=>matchTitleKey(x).length>=2))].slice(0,5).map(x => x.slice(0,100));
 }
@@ -701,8 +702,9 @@ let catalogueSnapshot = null;
 let matchStore = null;
 function useCatalogueStore(env) {
   if (matchStore || !env?.WATCH_HISTORY) return;
-  const call = (init) => env.WATCH_HISTORY.get(env.WATCH_HISTORY.idFromName('title-match:v1')).fetch('https://history.internal/title-matches', init);
+  const call = (init, query = '') => env.WATCH_HISTORY.get(env.WATCH_HISTORY.idFromName('title-match:v1')).fetch('https://history.internal/title-matches' + query, init);
   matchStore = {
+    get: async id => { const r = await call(undefined, '?id=' + id); if (!r.ok) { await r.body?.cancel(); return null; } return (await r.json()).match || null; },
     list: async () => { const r = await call(); if (!r.ok) { await r.body?.cancel(); throw new Error('Match store unavailable'); } return (await r.json()).matches || {}; },
     put: async entry => { const r = await call({method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(entry)}); await r.body?.cancel(); },
   };
@@ -868,6 +870,12 @@ async function resolveCatalogueTitle(item, env = {}, lookup = matcherConfigured(
   const key=JSON.stringify([item.id,item.title,item.year]);
   const known=resolvedCatalogueTitles.get(key);
   if(known && known.expires>Date.now())return {...item,...known.value};
+  // This isolate's catalogue copy may predate a match another isolate stored; ask the store before searching again.
+  const stored=await matchStore?.get(item.id).catch(()=>null);
+  if(stored&&stored.title===item.title&&stored.year===item.year){
+    if(stored.bgmId)return {...item,bgmId:stored.bgmId,aliases:stored.aliases};
+    if(stored.expires>Date.now())return {...item,bgmMissing:true};
+  }
   const value=await titleMatchCached('bangumi:'+key,async()=>{
     const candidates=new Map();let failure;
     // A failing query (often the long full title) must not hide the shorter one that finds the show.
@@ -1584,6 +1592,8 @@ export class WatchHistory {
   }
   // Runtime Bangumi matches keyed by Anime1 series id. Misses expire so new Bangumi entries are found later.
   async titleMatches(request){
+    const one=new URL(request.url).searchParams.get('id');
+    if(request.method==='GET'&&/^\d{1,10}$/.test(one||''))return historyResponse({match:await this.storage.get('tm:'+one)||null});
     if(request.method==='GET'){const matches={};for(const [key,value] of await this.storage.list({prefix:'tm:'}))matches[key.slice(3)]=value;return historyResponse({matches});}
     let data;try{data=await request.json();}catch{}
     const text=(x,n)=>typeof x==='string'&&x.length<=n;

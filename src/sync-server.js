@@ -65,6 +65,8 @@ export class WatchHistory {
   }
   // Runtime Bangumi matches keyed by Anime1 series id. Misses expire so new Bangumi entries are found later.
   async titleMatches(request){
+    const one=new URL(request.url).searchParams.get('id');
+    if(request.method==='GET'&&/^\d{1,10}$/.test(one||''))return historyResponse({match:await this.storage.get('tm:'+one)||null});
     if(request.method==='GET'){const matches={};for(const [key,value] of await this.storage.list({prefix:'tm:'}))matches[key.slice(3)]=value;return historyResponse({matches});}
     let data;try{data=await request.json();}catch{}
     const text=(x,n)=>typeof x==='string'&&x.length<=n;

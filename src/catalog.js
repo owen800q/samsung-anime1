@@ -12,8 +12,9 @@ let catalogueSnapshot = null;
 let matchStore = null;
 export function useCatalogueStore(env) {
   if (matchStore || !env?.WATCH_HISTORY) return;
-  const call = (init) => env.WATCH_HISTORY.get(env.WATCH_HISTORY.idFromName('title-match:v1')).fetch('https://history.internal/title-matches', init);
+  const call = (init, query = '') => env.WATCH_HISTORY.get(env.WATCH_HISTORY.idFromName('title-match:v1')).fetch('https://history.internal/title-matches' + query, init);
   matchStore = {
+    get: async id => { const r = await call(undefined, '?id=' + id); if (!r.ok) { await r.body?.cancel(); return null; } return (await r.json()).match || null; },
     list: async () => { const r = await call(); if (!r.ok) { await r.body?.cancel(); throw new Error('Match store unavailable'); } return (await r.json()).matches || {}; },
     put: async entry => { const r = await call({method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(entry)}); await r.body?.cancel(); },
   };
@@ -179,6 +180,12 @@ async function resolveCatalogueTitle(item, env = {}, lookup = matcherConfigured(
   const key=JSON.stringify([item.id,item.title,item.year]);
   const known=resolvedCatalogueTitles.get(key);
   if(known && known.expires>Date.now())return {...item,...known.value};
+  // This isolate's catalogue copy may predate a match another isolate stored; ask the store before searching again.
+  const stored=await matchStore?.get(item.id).catch(()=>null);
+  if(stored&&stored.title===item.title&&stored.year===item.year){
+    if(stored.bgmId)return {...item,bgmId:stored.bgmId,aliases:stored.aliases};
+    if(stored.expires>Date.now())return {...item,bgmMissing:true};
+  }
   const value=await titleMatchCached('bangumi:'+key,async()=>{
     const candidates=new Map();let failure;
     // A failing query (often the long full title) must not hide the shorter one that finds the show.
