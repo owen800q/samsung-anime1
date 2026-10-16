@@ -4,7 +4,7 @@
   const S=window.TVState;
   const formats={tv:'TV 動畫',movie:'劇場版',web:'網絡動畫',ova:'OVA / 特別篇',unknown:'動畫'};
   let generation=0,request=null,nextPage=null,state='',sort='',activePreset='all',selected=null,returnFocus=null;
-  const items=new Map(),details=new Map(),cards=new Map(),matchTried=new Set();
+  const items=new Map(),details=new Map(),cards=new Map(),matchTried=new Set(),matched=new Map();
   let commentsRequest=null,commentsGeneration=0,commentsPage=1,commentsNext=null;
   function resetComments(){
     commentsGeneration++;commentsRequest?.abort();commentsRequest=null;commentsPage=1;commentsNext=null;
@@ -58,7 +58,7 @@
   function openAnime(item,updateRoute=true){
     if(updateRoute){const p=S.route();p.set('view','anime');p.set('id',item.id);p.delete('episode');S.navigate(p);}
 
-    selected=item.id;returnFocus=cards.get(item.id);
+    selected=item.id;returnFocus=cards.get(item.id);if(item.bgmId)matched.set(item.id,item);
     resetComments();
     if(item.bgmId){$('comments-source').href='https://bgm.tv/subject/'+item.bgmId+'/comments';$('comments-source').hidden=false;void loadComments();}
     else $('comments-status').textContent='這套動畫尚未配對 Bangumi，暫未能顯示評論。';
@@ -70,7 +70,7 @@
     reminder();void S.refresh();
     if(!item.bgmId)void json('/api/catalog-item?id='+item.id+'&match=1').then(async data=>{
       if(selected!==item.id||!data.item.bgmId)return;
-      Object.assign(item,data.item);addCover(item);
+      Object.assign(item,data.item);matched.set(item.id,data.item);addCover(item);
       $('comments-source').href='https://bgm.tv/subject/'+item.bgmId+'/comments';$('comments-source').hidden=false;void loadComments();
       const result=await json('/api/metadata?ids='+item.id);
       if(selected!==item.id)return;
@@ -81,6 +81,8 @@
     if(item.bgmId&&!details.has(item.id))void json('/api/metadata?ids='+item.id).then(data=>updateCard(item,data.details[item.id])).catch(()=>{});
   }
   function card(item){
+    // A match found earlier this session (grid or detail page) outlives the server's catalogue snapshot.
+    const known=!item.bgmId&&matched.get(item.id);if(known&&known.title===item.title)Object.assign(item,{bgmId:known.bgmId,aliases:known.aliases,format:known.format});
     const button=document.createElement('button');button.className='anime-card';button.setAttribute('aria-label',item.title+'，'+item.episodes);button.dataset.id=item.id;
     const poster=document.createElement('div');poster.className='anime-poster';const placeholder=document.createElement('div');placeholder.className='poster-placeholder';placeholder.setAttribute('aria-hidden','true');
     const small=document.createElement('small');small.textContent='ANIME COLLECTION';const name=document.createElement('strong');name.textContent=item.title;placeholder.append(small,name);poster.append(placeholder);
@@ -92,7 +94,9 @@
   function addCover(item){
     const poster=cards.get(item.id)?.querySelector('.anime-poster');
     if(!item.bgmId||!poster||poster.querySelector('img'))return;
-    const img=document.createElement('img');img.alt='';img.loading='lazy';img.decoding='async';img.src='/api/cover?id='+item.id;img.addEventListener('error',()=>{img.hidden=true;});poster.insertBefore(img,poster.querySelector('.poster-badge'));
+    const img=document.createElement('img');img.alt='';img.loading='lazy';img.decoding='async';img.src='/api/cover?id='+item.id;
+    // A full grid requests every cover at once and Bangumi sheds some of them; retry before giving up.
+    let tries=0;img.addEventListener('error',()=>{img.hidden=true;if(++tries<=2)setTimeout(()=>{if(img.isConnected){img.src='/api/cover?id='+item.id+'&retry='+tries;}},tries*3000);});img.addEventListener('load',()=>{img.hidden=false;});poster.insertBefore(img,poster.querySelector('.poster-badge'));
   }
   async function hydrate(list,id,signal){
     const missing=list.filter(item=>item.bgmId&&!details.has(item.id));
@@ -102,8 +106,9 @@
     for(const item of list.filter(x=>!x.bgmId&&!x.bgmMissing&&!matchTried.has(x.id))){
       if(id!==generation)return;matchTried.add(item.id);
       try{const data=await json('/api/catalog-item?id='+item.id+'&match=1',signal);if(id!==generation)return;if(!data.item.bgmId)continue;
-        Object.assign(item,data.item);addCover(item);const meta=await json('/api/metadata?ids='+item.id,signal);if(id!==generation)return;updateCard(item,meta.details[item.id]);}
-      catch{if(signal.aborted)return;}
+        Object.assign(item,data.item);matched.set(item.id,data.item);addCover(item);const meta=await json('/api/metadata?ids='+item.id,signal);if(id!==generation)return;updateCard(item,meta.details[item.id]);}
+      // A failed or interrupted lookup (Bangumi outage, leaving the page) is not an answer: try again next load.
+      catch{matchTried.delete(item.id);if(signal.aborted)return;}
     }
   }
   async function load(page=1,updateRoute=true){

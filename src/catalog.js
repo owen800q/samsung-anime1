@@ -112,7 +112,16 @@ export async function browseCatalogue(params) {
     }
     return {items:matches,years,genres:GENRES,total:null,nextPage:more?next:null,stale,genre:Boolean(genre),sort:order};
   }
-  return {items:filtered.slice((page-1)*24,page*24).map(publicItem),years,genres:GENRES,total:filtered.length,nextPage:page*24<filtered.length?page+1:null,stale,genre:false,sort:null};
+  return {items:(await withStoredMatches(filtered.slice((page-1)*24,page*24))).map(publicItem),years,genres:GENRES,total:filtered.length,nextPage:page*24<filtered.length?page+1:null,stale,genre:false,sort:null};
+}
+// The catalogue snapshot lives five minutes per isolate, so a title matched since (often by opening its
+// detail page) would come back unmapped and its card would never get a cover. Re-read the store for the page.
+let storedMatches=null;
+async function withStoredMatches(page) {
+  if(!matchStore||!page.some(x=>!x.bgmId&&!x.bgmMissing))return page;
+  if(!storedMatches||storedMatches.expires<=Date.now())storedMatches={value:matchStore.list().catch(()=>({})),expires:Date.now()+15000};
+  const stored=await storedMatches.value;
+  return page.map(item=>{const found=!item.bgmId&&stored[item.id];return found?.bgmId&&found.title===item.title&&found.year===item.year?{...item,bgmId:found.bgmId,aliases:found.aliases||[]}:item;});
 }
 export async function catalogueMetadata(ids) {
   if(!/^\d+(?:,\d+){0,7}$/.test(ids||''))throw new PlaybackError('動畫資料編號無效。',400);
@@ -162,7 +171,7 @@ export async function catalogueCover(id) {
   if(!/^\d{1,10}$/.test(id||''))throw new PlaybackError('封面編號無效。',400);
   const cache=globalThis.caches?.default;const key=new Request('https://samsung-anime1-cache.invalid/cover/'+id);
   const cached=await cache?.match(key).catch(()=>null);if(cached)return cached;
-  const {items}=await catalogueIndex();const item=items.find(x=>x.id===Number(id));const detail=item?await subjectMetadata(item,true):null;
+  const {items}=await catalogueIndex();const item=items.find(x=>x.id===Number(id));const detail=item?await subjectMetadata(item,true).catch(()=>subjectMetadata(item,true)):null;
   if(!detail?.image)return new Response(null,{status:404});
   const response=await fetch(detail.image,{headers:{'User-Agent':CATALOG_UA},redirect:'manual',signal:AbortSignal.timeout(30000)});
   if(!response.ok||!/^image\/(?:jpeg|png|webp)(?:;|$)/i.test(response.headers.get('content-type')||'')){await response.body?.cancel();return new Response(null,{status:502});}
