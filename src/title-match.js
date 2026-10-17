@@ -1,4 +1,5 @@
 import { jevSessionCookie } from './jev-session.js';
+import { foldChinese } from './zh-fold.js';
 // Optional server-only fallback. No credentials, prompts or model output reach clients.
 const titleMatchMemory = new Map(), titleMatchPending = new Map();
 export const LLM_TIMEOUT_MS = 25000;
@@ -32,7 +33,8 @@ function titleMatchFailure(error){
 function titleMatchError(reason,status){const error=new Error('Title matching unavailable');error.matchReason=reason;if(Number.isInteger(status))error.status=status;return error;}
 // Either matcher enables title matching; exact matches never need one.
 export const matcherConfigured = env => Boolean(env.JEV_API_KEY || env.JEV_COOKIE || env.TITLE_MATCH_LLM_API_KEY);
-export const matchTitleKey = value => String(value || '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+// Traditional and Simplified spellings compare equal: 動畫瘋/Anime1 write 轉生就是劍, Bangumi 转生就是剑.
+export const matchTitleKey = value => foldChinese(String(value || '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]/gu, ''));
 const SEASON_SUFFIX=/(?:\s*[（(]?\s*(?:第[一二三四五六七八九十\d]+[季期部]|(?:season|s)\s*\d+|\d+(?:st|nd|rd|th)\s*season|(?<![A-Za-z])[IVXⅠⅡⅢⅣⅤ]+|\d+)\s*[）)]?)$/i;
 export function titleQueries(title) {
   // Split at a subtitle separator only after a real prefix: "Re:從零開始…" must not search for "Re".
@@ -42,7 +44,8 @@ export function titleQueries(title) {
   // Substring search (動畫瘋) misses on spacing and mixed scripts: "SPY×FAMILY間諜家家酒" vs
   // "SPY×FAMILY 間諜家家酒 Season 3". Also try the longest CJK run and the leading Latin run.
   const cjk=[root,unseasoned].map(x=>(x.match(/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}ー・！!？?、，]+/gu)||[]).map(x=>x.replace(/[・！!？?、，]+$/,'')).sort((a,b)=>b.length-a.length)[0]).find(Boolean);
-  const latin=root.match(/^[A-Za-z0-9][A-Za-z0-9×.&'! ]*[A-Za-z0-9]/)?.[0];
+  // The Latin run may also follow the CJK name: "闇機 DARK MACHINE" is listed on Bangumi as "暗机 DARK MACHINE".
+  const latin=(root.match(/[A-Za-z0-9][A-Za-z0-9×.&'! ]*[A-Za-z0-9]/g)||[]).sort((a,b)=>b.length-a.length)[0];
   const parts=[cjk&&matchTitleKey(cjk).length>=3?cjk:'',latin&&matchTitleKey(latin).length>=4?latin:''];
   return [...new Set([title, root, unseasoned, ...parts].filter(x=>matchTitleKey(x).length>=2))].slice(0,5).map(x => x.slice(0,100));
 }
@@ -80,7 +83,7 @@ export async function titleMatchCached(key, load, allowLoad = true, context = {}
   if (titleMatchPending.size >= 4) { titleMatchLog('cache',{...context,reason:'busy'});return null; }
   const task = (async () => {
     const cache = globalThis.caches?.default;
-    const request = new Request('https://samsung-anime1-cache.invalid/title-match/v4/' + encodeURIComponent(key));
+    const request = new Request('https://samsung-anime1-cache.invalid/title-match/v6/' + encodeURIComponent(key));
     const hit = await cache?.match(request).catch(() => null);
     let data = null, ttl = 300, reason;
     if (hit) { const entry = await hit.json();data = entry.data;reason=entry.reason;ttl=Math.max(1,Math.floor((entry.expires-Date.now())/1000));reportHit(entry,'edge'); }

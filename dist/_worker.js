@@ -467,6 +467,13 @@ async function jevSessionCookie(env, {force = false} = {}) {
   return run;
 }
 
+// Traditional -> Simplified single-character folding for title comparison only.
+// Generated from Unicode Unihan kSimplifiedVariant (first BMP simplified form; characters that are their own simplified form stay unchanged).
+const ZH_TRADITIONAL='㑯㑳㑶㓨㘚㜄㜏㠏㥮㩜㩳㩵㻽䁻䃮䊷䋙䋚䋹䋻䎱䙡䙰䜀䝼䥇䥑䥱䦛䦟䯀䰾䱷䱽䲁䲘䴉丟並亂亞佇併來侖侶俁係俔俠俥倀倆倈倉個們倫倲偉偑側偵偽傌傑傖傘備傢傭傯傳傴債傷傾僂僅僉僑僕僞僥僨價儀儁儂億儈儉儐儔儕儘償優儲儷儸儺儻儼兌兒兗內兩冊冪凈凍凜凱別刪剄則剋剎剗剛剝剮剴創劃劇劉劊劌劍劏劑劚勁動務勛勝勞勢勩勱勵勸勻匭匯匱區協卻厙厠厭厲厴參叄叢吒吳吶呂咼員唄唚問啓啞啟啢喎喚喪喬單喲嗆嗇嗊嗎嗚嗩嗶嘆嘍嘓嘔嘖嘗嘜嘩嘮嘯嘰嘵嘸嘽噁噓噚噝噠噥噦噯噲噴噸噹嚀嚇嚌嚕嚙嚦嚨嚮嚲嚳嚴嚶囀囁囂囅囈囉囌囑囪圇國圍園圓圖團垵垻埡埰執堅堊堖堝堯報場塊塋塏塒塗塢塤塵塹墊墜墮墳墶墻墾壇壋壓壘壙壚壞壟壠壢壩壪壯壺壼壽夠夢夾奐奧奩奪奬奮奼妝姍姦娛婁婦婭媧媯媰媼媽嫗嫵嫻嫿嬀嬃嬈嬋嬌嬙嬡嬤嬪嬰嬸孋孌孫學孿宮寢實寧審寫寬寯寵寶將專尋對導尷屆屍屓屜屢層屨屬岡峴島峽崍崗崢崬嵐嵾嶁嶄嶇嶔嶗嶠嶢嶧嶨嶮嶴嶸嶺嶼巋巒巔巰帥師帳帶幀幃幓幗幘幟幣幫幬幹幺幾庫廁廂廄廈廎廚廝廟廠廡廢廣廩廬廳弒弳張強彆彈彌彎彙彞彠彥彲後徑從徠徹恆恥悅悞悵悶惡惱惲惻愛愜愨愴愷愾慄態慍慘慚慟慣慤慪慫慮慳慶慺憂憊憍憐憑憒憖憚憤憫憮憲憶懇應懌懍懞懟懣懤懧懨懲懶懷懸懺懼懾戀戇戔戧戩戰戱戲戶拋挩挾捨捫捲掃掄掆掗掙掛採揀揚換揮損搖搗搵搶摑摜摟摯摳摶摻撈撏撐撓撝撟撣撥撫撲撳撻撾撿擁擄擇擊擋擓擔據擠擥擬擯擰擱擲擴擷擺擻擼擽擾攄攆攏攔攖攙攛攜攝攢攣攤攪攬敗敘敵數斂斃斆斕斬斷於時晉晝暈暉暘暢暫曄曆曇曉曏曖曠曨曬書會朧東柵桿梔梘條梟梲棄棖棗棟棡棧棲棶椏椲楊楓楨業極榪榮榲榿構槍槤槧槨槮槳槶槼樁樂樅樓標樞樢樣樫樳樸樹樺樿橈橋機橢橫檁檉檔檜檟檢檣檮檯檳檸檻櫃櫓櫚櫛櫝櫞櫟櫥櫧櫨櫪櫫櫬櫱櫳櫸櫻欄權欏欒欖欞欽歐歟歡歲歷歸歿殘殞殤殨殫殮殯殰殲殺殻殼毀毆毿氂氈氌氣氫氬氳決沒沖況洶浹涇涼淚淥淪淵淶淺渙減渢渦測渾湊湞湯溈準溝溫溮溳滄滅滌滎滬滯滲滷滸滻滾滿漁漊漚漢漣漬漲漵漸漿潁潑潔潙潚潛潤潯潰潷潿澀澆澇澐澗澠澤澦澩澮澱澾濁濃濄濕濘濚濛濜濟濤濧濫濰濱濺濼濾瀂瀅瀆瀇瀉瀋瀏瀕瀘瀝瀟瀠瀦瀧瀨瀰瀲瀾灃灄灑灕灘灝灡灣灤灧災為烏烴無煉煒煙煢煥煩煬煱熅熒熗熱熲熾燁燈燒燙燜營燦燭燴燶燼燾爍爐爛爭爲爺爾牆牘牽犖犢犧狀狹狽猙猶猻獁獄獅獎獨獪獫獮獰獱獲獵獷獸獺獻獼玀現琺琿瑋瑒瑣瑤瑩瑪瑲璉璡璣璦璫璯環璵璸璽瓊瓏瓔瓚甌產産畝畢畫異當疇疊痙痾瘂瘋瘍瘓瘞瘡瘧瘮瘲瘺瘻療癆癇癉癘癟癢癤癥癧癩癬癭癮癰癱癲發皚皰皸皺盜盞盡監盤盧盪眥眾睏睜睞瞘瞜瞞瞶瞼矇矓矚矯硃硜硤硨硯碩碭碸確碼碽磑磚磠磣磧磯磽磾礄礆礎礙礦礪礫礬礱祿禍禎禕禡禦禪禮禰禱禿秈稅稈稏稟種稱穀穇穌積穎穠穡穢穩穫穭窩窪窮窯窵窶窺竄竅竇竈竊竪競筆筍筧筴箋箏節範築篋篔篤篩篳簀簍簞簡簣簫簹簽簾籃籌籔籙籛籜籟籠籤籩籪籬籮籲粵糝糞糧糰糲糴糶糹糾紀紂約紅紆紇紈紉紋納紐紓純紕紖紗紘紙級紛紜紝紡紬細紱紲紳紵紹紺紼紿絀終組絅絆絎結絕絝絞絡絢給絨絰統絲絳絶絹綁綃綆綈綉綌綏綐經綜綞綠綢綣綫綬維綯綰綱網綳綴綵綸綹綺綻綽綾綿緄緇緊緋緑緒緓緔緗緘緙線緝緞締緡緣緦編緩緬緯緱緲練緶緹緻緼縈縉縊縋縐縑縕縗縛縝縞縟縣縧縫縭縮縱縲縳縴縵縶縷縹總績繃繅繆繒織繕繚繞繡繢繩繪繫繭繮繯繰繳繸繹繼繽繾繿纇纈纊續纍纏纓纔纖纘纜缽罃罈罌罎罰罵罷羅羆羈羋羥義習翬翹翽耬耮聖聞聯聰聲聳聵聶職聹聽聾肅脅脈脛脫脹腎腖腡腦腫腳腸膃膋膕膚膞膠膩膽膾膿臇臉臍臏臘臚臟臠臢臨臺與興舉舊艙艤艦艫艱艷芻苧茲荊莊莖莢莧華萇萊萬萴萵葉葒葤葦葯葷蒓蒔蒞蒼蓀蓋蓮蓯蓴蓽蔔蔞蔣蔥蔦蔭蕁蕆蕎蕒蕓蕕蕘蕢蕩蕪蕭蕷薀薈薊薌薑薔薘薟薦薩薳薴薵薺藍藎藝藥藪藭藴藶藹藺蘀蘄蘆蘇蘊蘋蘚蘞蘢蘭蘺蘿虆處虛虜號虧虯蛺蛻蜆蝕蝟蝦蝸螄螞螢螮螻螿蟄蟈蟎蟣蟬蟯蟲蟶蟻蠁蠅蠆蠐蠑蠟蠣蠨蠱蠶蠻衆衊術衕衚衛衝衹袞裊裏補裝製複褌褘褲褳褸褻襇襌襏襖襝襠襤襪襬襯襲襴見覎規覓視覘覡覥覦親覬覯覲覷覺覽覿觀觴觶觸訁訂訃計訊訌討訐訒訓訕訖託記訛訝訟訢訣訥訩訪設許訴訶診註詁詆詎詐詒詔評詖詗詘詛詞詠詡詢詣試詩詫詬詭詮詰話該詳詵詼詿誄誅誆誇誌認誑誒誕誘誚語誠誡誣誤誥誦誨說説誰課誶誹誼誾調諂諄談諉請諍諏諑諒論諗諛諜諝諞諢諤諦諧諫諭諮諱諳諶諷諸諺諼諾謀謁謂謄謅謊謎謐謔謖謗謙謚講謝謠謡謨謫謬謭謳謹謾證譎譏譖識譙譚譜譫譯議譴護譸譼譽譾讀讅變讋讌讎讒讓讕讖讜讞豈豎豐豬豶貓貙貝貞貟負財貢貧貨販貪貫責貯貰貲貳貴貶買貸貺費貼貽貿賀賁賂賃賄賅資賈賊賑賒賓賕賙賚賜賞賠賡賢賣賤賦賧質賫賬賭賰賴賵賺賻購賽賾贄贅贇贈贊贋贍贏贐贓贔贖贗贛贜赬趕趙趨趲跡踐踴蹌蹕蹣蹤蹺躂躉躊躋躍躎躑躒躓躕躚躡躥躦躪軀車軋軌軍軑軒軔軛軟軤軫軲軸軹軺軻軼軾較輅輇輈載輊輒輓輔輕輛輜輝輞輟輥輦輩輪輬輯輳輸輻輼輾輿轀轂轄轅轆轉轍轎轔轟轡轢轤辦辭辮辯農迴逕這連進運過達違遙遜遞遠適遲遷選遺遼邁還邇邊邏邐郟郵鄆鄉鄒鄔鄖鄧鄭鄰鄲鄴鄶鄺酇酈醖醜醞醟醫醬醱釀釁釃釅釋釐釒釓釔釕釗釘釙針釣釤釧釩釵釷釹釺釾鈀鈁鈃鈄鈈鈉鈍鈎鈐鈑鈒鈔鈕鈞鈣鈥鈦鈧鈮鈰鈳鈴鈷鈸鈹鈺鈽鈾鈿鉀鉅鉈鉉鉋鉍鉑鉕鉗鉚鉛鉞鉢鉤鉦鉨鉬鉭鉶鉸鉺鉻鉿銀銃銅銍銑銓銖銘銚銛銜銠銣銥銦銨銩銪銫銬銱銳銷銹銻銼鋁鋃鋅鋇鋌鋏鋒鋙鋝鋟鋣鋤鋥鋦鋨鋩鋪鋭鋮鋯鋰鋱鋶鋸鋼錁錆錇錈錏錐錒錕錘錙錚錛錟錠錡錢錦錨錩錫錮錯録錳錶錸鍀鍁鍃鍆鍇鍈鍋鍍鍔鍘鍚鍛鍠鍤鍥鍩鍬鍰鍵鍶鍺鍾鎂鎄鎇鎊鎔鎖鎘鎛鎡鎢鎣鎦鎧鎩鎪鎬鎮鎰鎲鎳鎵鎶鎸鎿鏃鏇鏈鏌鏍鏐鏑鏗鏘鏜鏝鏞鏟鏡鏢鏤鏨鏰鏵鏷鏹鏺鏽鐃鐋鐐鐒鐓鐔鐘鐙鐝鐠鐥鐦鐧鐨鐫鐮鐯鐲鐳鐵鐶鐸鐺鐿鑄鑈鑊鑌鑒鑔鑕鑞鑠鑣鑥鑭鑰鑱鑲鑷鑹鑼鑽鑾鑿钁钂長門閂閃閆閈閉開閌閎閏閑間閔閘閡閣閤閥閨閩閫閬閭閱閲閶閹閻閼閽閾閿闃闆闈闊闋闌闍闐闒闓闔闕闖關闞闠闡闢闤闥阪陘陝陣陰陳陸陽隉隊階隕際隨險隯隱隴隸隻雋雖雙雛雜雞離難雲電霢霧霽靂靄靆靈靉靚靜靦靨鞏鞝鞦鞽韁韃韆韉韋韌韍韓韙韜韞韻響頁頂頃項順頇須頊頌頎頏預頑頒頓頗領頜頡頤頦頭頮頰頲頴頷頸頹頻頽顆題額顎顏顒顓顔願顙顛類顢顥顧顫顬顯顰顱顳顴風颭颮颯颱颳颶颸颺颻颼飀飄飆飈飛飠飢飣飥飩飪飫飭飯飲飴飼飽飾飿餃餄餅餉養餌餎餏餑餒餓餕餖餘餚餛餜餞餡館餱餳餶餷餺餼餾餿饁饃饅饈饉饊饋饌饑饒饗饜饞饢馬馭馮馱馳馴馹駁駐駑駒駔駕駘駙駛駝駟駡駢駭駰駱駸駿騁騂騅騌騍騎騏騖騙騤騧騫騭騮騰騶騷騸騾驀驁驂驃驄驅驊驌驍驏驕驗驚驛驟驢驤驥驦驪驫骯髏髒體髕髖髮鬆鬍鬚鬢鬥鬧鬩鬮鬱鬹魎魘魚魛魢魨魯魴魷魺鮁鮃鮊鮋鮍鮎鮐鮑鮒鮓鮗鮚鮜鮝鮞鮣鮦鮪鮫鮭鮮鮳鮶鮺鯀鯁鯇鯉鯊鯒鯔鯕鯖鯗鯛鯝鯡鯢鯤鯧鯨鯪鯫鯰鯴鯷鯽鯿鰁鰂鰃鰆鰈鰉鰌鰍鰏鰐鰒鰓鰛鰜鰟鰠鰣鰥鰧鰨鰩鰭鰮鰱鰲鰳鰵鰷鰹鰺鰻鰼鰾鱂鱅鱈鱉鱒鱔鱖鱗鱘鱝鱟鱠鱣鱤鱧鱨鱭鱯鱷鱸鱺鳥鳧鳩鳬鳲鳳鳴鳶鳾鴆鴇鴉鴒鴕鴛鴝鴞鴟鴣鴦鴨鴯鴰鴴鴷鴻鴿鵁鵂鵃鵐鵑鵒鵓鵜鵝鵠鵡鵪鵬鵮鵯鵲鵷鵾鶄鶇鶉鶊鶓鶖鶘鶚鶡鶥鶩鶪鶬鶯鶲鶴鶹鶺鶻鶼鷀鷁鷂鷄鷈鷉鷊鷓鷖鷗鷙鷚鷥鷦鷫鷯鷲鷳鷸鷹鷺鷽鸂鸇鸊鸌鸏鸕鸘鸚鸛鸝鸞鹵鹹鹺鹼鹽麗麥麩麯麴麵麼麽黃黌點黨黲黴黶黷黽黿鼂鼉鼕鼴齊齋齏齒齔齕齗齙齜齟齠齡齣齦齪齬齲齶齷龍龎龐龑龔龕龜鿁鿐鿓鿠鿳';
+const ZH_SIMPLIFIED='㑔㑇㐹刾㘎㚯㛣㟆㤘㨫㧐擜㻪䀥鿎䌶䌺䌻䌿䌾䎬䙌褵䜧䞍䦂鿏䥾䦶䦷䯅鲃䲣䲝鳚鳤鹮丢并乱亚伫并来仑侣俣系伣侠伡伥俩俫仓个们伦㑈伟㐽侧侦伪㐷杰伧伞备家佣偬传伛债伤倾偻仅佥侨仆伪侥偾价仪㑺侬亿侩俭傧俦侪尽偿优储俪㑩傩傥俨兑儿兖内两册幂净冻凛凯别删刭则克刹刬刚剥剐剀创划剧刘刽刿剑㓥剂㔉劲动务勋胜劳势勚劢励劝匀匦汇匮区协却厍厕厌厉厣参叁丛咤吴呐吕呙员呗吣问启哑启唡㖞唤丧乔单哟呛啬唝吗呜唢哔叹喽啯呕啧尝唛哗唠啸叽哓呒啴恶嘘㖊咝哒哝哕嗳哙喷吨当咛吓哜噜啮呖咙向亸喾严嘤啭嗫嚣冁呓啰苏嘱囱囵国围园圆图团埯坝垭采执坚垩垴埚尧报场块茔垲埘涂坞埙尘堑垫坠堕坟垯墙垦坛垱压垒圹垆坏垄垅坜坝塆壮壶壸寿够梦夹奂奥奁夺奖奋姹妆姗奸娱娄妇娅娲妫㛀媪妈妪妩娴婳妫媭娆婵娇嫱嫒嬷嫔婴婶㛤娈孙学孪宫寝实宁审写宽㝦宠宝将专寻对导尴届尸屃屉屡层屦属冈岘岛峡崃岗峥岽岚㟥嵝崭岖嵚崂峤峣峄峃崄岙嵘岭屿岿峦巅巯帅师帐带帧帏㡎帼帻帜币帮帱干么几库厕厢厩厦庼厨厮庙厂庑废广廪庐厅弑弪张强别弹弥弯汇彝彟彦彨后径从徕彻恒耻悦悮怅闷恶恼恽恻爱惬悫怆恺忾栗态愠惨惭恸惯悫怄怂虑悭庆㥪忧惫㤭怜凭愦慭惮愤悯怃宪忆恳应怿懔蒙怼懑㤽㤖恹惩懒怀悬忏惧慑恋戆戋戗戬战戯戏户抛捝挟舍扪卷扫抡㧏挜挣挂采拣扬换挥损摇捣揾抢掴掼搂挚抠抟掺捞挦撑挠㧑挢掸拨抚扑揿挞挝捡拥掳择击挡㧟担据挤㧛拟摈拧搁掷扩撷摆擞撸㧰扰摅撵拢拦撄搀撺携摄攒挛摊搅揽败叙敌数敛毙敩斓斩断于时晋昼晕晖旸畅暂晔历昙晓向暧旷昽晒书会胧东栅杆栀枧条枭棁弃枨枣栋㭎栈栖梾桠㭏杨枫桢业极杩荣榅桤构枪梿椠椁椮桨椢椝桩乐枞楼标枢㭤样㭴桪朴树桦椫桡桥机椭横檩柽档桧槚检樯梼台槟柠槛柜橹榈栉椟橼栎橱槠栌枥橥榇蘖栊榉樱栏权椤栾榄棂钦欧欤欢岁历归殁残殒殇㱮殚殓殡㱩歼杀壳壳毁殴毵牦毡氇气氢氩氲决没冲况汹浃泾凉泪渌沦渊涞浅涣减沨涡测浑凑浈汤沩准沟温浉涢沧灭涤荥沪滞渗卤浒浐滚满渔溇沤汉涟渍涨溆渐浆颍泼洁沩㴋潜润浔溃滗涠涩浇涝沄涧渑泽滪泶浍淀㳠浊浓㳡湿泞溁蒙浕济涛㳔滥潍滨溅泺滤澛滢渎㲿泻沈浏濒泸沥潇潆潴泷濑㳽潋澜沣滠洒漓滩灏㳕湾滦滟灾为乌烃无炼炜烟茕焕烦炀㶽煴荧炝热颎炽烨灯烧烫焖营灿烛烩㶶烬焘烁炉烂争为爷尔墙牍牵荦犊牺状狭狈狰犹狲犸狱狮奖独狯猃狝狞㺍获猎犷兽獭献猕猡现珐珲玮玚琐瑶莹玛玱琏琎玑瑷珰㻅环玙瑸玺琼珑璎瓒瓯产产亩毕画异当畴叠痉疴痖疯疡痪瘗疮疟瘆疭瘘瘘疗痨痫瘅疠瘪痒疖症疬癞癣瘿瘾痈瘫癫发皑疱皲皱盗盏尽监盘卢荡眦众困睁睐眍䁖瞒瞆睑蒙眬瞩矫朱硁硖砗砚硕砀砜确码䂵硙砖硵碜碛矶硗䃅硚硷础碍矿砺砾矾砻禄祸祯祎祃御禅礼祢祷秃籼税秆䅉禀种称谷䅟稣积颖秾穑秽稳获稆窝洼穷窑窎窭窥窜窍窦灶窃竖竞笔笋笕䇲笺筝节范筑箧筼笃筛筚箦篓箪简篑箫筜签帘篮筹䉤箓篯箨籁笼签笾簖篱箩吁粤糁粪粮团粝籴粜纟纠纪纣约红纡纥纨纫纹纳纽纾纯纰纼纱纮纸级纷纭纴纺䌷细绂绁绅纻绍绀绋绐绌终组䌹绊绗结绝绔绞络绚给绒绖统丝绛绝绢绑绡绠绨绣绤绥䌼经综缍绿绸绻线绶维绹绾纲网绷缀䌽纶绺绮绽绰绫绵绲缁紧绯绿绪绬绱缃缄缂缐缉缎缔缗缘缌编缓缅纬缑缈练缏缇致缊萦缙缢缒绉缣缊缞缚缜缟缛县绦缝缡缩纵缧䌸纤缦絷缕缥总绩绷缫缪缯织缮缭绕绣缋绳绘系茧缰缳缲缴䍁绎继缤缱䍀颣缬纩续累缠缨才纤缵缆钵䓨坛罂坛罚骂罢罗罴羁芈羟义习翚翘翙耧耢圣闻联聪声耸聩聂职聍听聋肃胁脉胫脱胀肾胨脶脑肿脚肠腽䒿腘肤䏝胶腻胆脍脓䐪脸脐膑腊胪脏脔臜临台与兴举旧舱舣舰舻艰艳刍苎兹荆庄茎荚苋华苌莱万荝莴叶荭荮苇药荤莼莳莅苍荪盖莲苁莼荜卜蒌蒋葱茑荫荨蒇荞荬芸莸荛蒉荡芜萧蓣蕰荟蓟芗姜蔷荙莶荐萨䓕苧䓓荠蓝荩艺药薮䓖蕴苈蔼蔺萚蕲芦苏蕴苹藓蔹茏兰蓠萝蔂处虚虏号亏虬蛱蜕蚬蚀猬虾蜗蛳蚂萤䗖蝼螀蛰蝈螨虮蝉蛲虫蛏蚁蚃蝇虿蛴蝾蜡蛎蟏蛊蚕蛮众蔑术同胡卫冲只衮袅里补装制复裈袆裤裢褛亵裥褝袯袄裣裆褴袜䙓衬袭襕见觃规觅视觇觋觍觎亲觊觏觐觑觉览觌观觞觯触讠订讣计讯讧讨讦讱训讪讫讬记讹讶讼䜣诀讷讻访设许诉诃诊注诂诋讵诈诒诏评诐诇诎诅词咏诩询诣试诗诧诟诡诠诘话该详诜诙诖诔诛诓夸志认诳诶诞诱诮语诚诫诬误诰诵诲说说谁课谇诽谊訚调谄谆谈诿请诤诹诼谅论谂谀谍谞谝诨谔谛谐谏谕谘讳谙谌讽诸谚谖诺谋谒谓誊诌谎谜谧谑谡谤谦谥讲谢谣谣谟谪谬谫讴谨谩证谲讥谮识谯谭谱谵译议谴护诪䛓誉谫读谉变詟䜩雠谗让谰谶谠谳岂竖丰猪豮猫䝙贝贞贠负财贡贫货贩贪贯责贮贳赀贰贵贬买贷贶费贴贻贸贺贲赂赁贿赅资贾贼赈赊宾赇赒赉赐赏赔赓贤卖贱赋赕质赍账赌䞐赖赗赚赙购赛赜贽赘赟赠赞赝赡赢赆赃赑赎赝赣赃赪赶赵趋趱迹践踊跄跸蹒踪跷跶趸踌跻跃䟢踯跞踬蹰跹蹑蹿躜躏躯车轧轨军轪轩轫轭软轷轸轱轴轵轺轲轶轼较辂辁辀载轾辄挽辅轻辆辎辉辋辍辊辇辈轮辌辑辏输辐辒辗舆辒毂辖辕辘转辙轿辚轰辔轹轳办辞辫辩农回迳这连进运过达违遥逊递远适迟迁选遗辽迈还迩边逻逦郏邮郓乡邹邬郧邓郑邻郸邺郐邝酂郦酝丑酝蒏医酱酦酿衅酾酽释厘钅钆钇钌钊钉钋针钓钐钏钒钗钍钕钎䥺钯钫钘钭钚钠钝钩钤钣钑钞钮钧钙钬钛钪铌铈钶铃钴钹铍钰钸铀钿钾钜铊铉铇铋铂钷钳铆铅钺钵钩钲鿭钼钽铏铰铒铬铪银铳铜铚铣铨铢铭铫铦衔铑铷铱铟铵铥铕铯铐铞锐销锈锑锉铝锒锌钡铤铗锋铻锊锓铘锄锃锔锇铓铺锐铖锆锂铽锍锯钢锞锖锫锩铔锥锕锟锤锱铮锛锬锭锜钱锦锚锠锡锢错录锰表铼锝锨锪钔锴锳锅镀锷铡钖锻锽锸锲锘锹锾键锶锗钟镁锿镅镑镕锁镉镈镃钨蓥镏铠铩锼镐镇镒镋镍镓鿔镌镎镞旋链镆镙镠镝铿锵镗镘镛铲镜镖镂錾镚铧镤镪䥽锈铙铴镣铹镦镡钟镫镢镨䦅锎锏镄镌镰䦃镯镭铁镮铎铛镱铸鿭镬镔鉴镲锧镴铄镳镥镧钥镵镶镊镩锣钻銮凿䦆镋长门闩闪闫闬闭开闶闳闰闲间闵闸阂阁合阀闺闽阃阆闾阅阅阊阉阎阏阍阈阌阒板闱阔阕阑阇阗阘闿阖阙闯关阚阓阐辟阛闼坂陉陕阵阴陈陆阳陧队阶陨际随险陦隐陇隶只隽虽双雏杂鸡离难云电霡雾霁雳霭叇灵叆靓静䩄靥巩绱秋鞒缰鞑千鞯韦韧韨韩韪韬韫韵响页顶顷项顺顸须顼颂颀颃预顽颁顿颇领颌颉颐颏头颒颊颋颕颔颈颓频颓颗题额颚颜颙颛颜愿颡颠类颟颢顾颤颥显颦颅颞颧风飐飑飒台刮飓飔飏飖飕飗飘飙飚飞饣饥饤饦饨饪饫饬饭饮饴饲饱饰饳饺饸饼饷养饵饹饻饽馁饿馂饾余肴馄馃饯馅馆糇饧馉馇馎饩馏馊馌馍馒馐馑馓馈馔饥饶飨餍馋馕马驭冯驮驰驯驲驳驻驽驹驵驾骀驸驶驼驷骂骈骇骃骆骎骏骋骍骓骔骒骑骐骛骗骙䯄骞骘骝腾驺骚骟骡蓦骜骖骠骢驱骅骕骁骣骄验惊驿骤驴骧骥骦骊骉肮髅脏体髌髋发松胡须鬓斗闹阋阄郁鬶魉魇鱼鱽鱾鲀鲁鲂鱿鲄鲅鲆鲌鲉鲏鲇鲐鲍鲋鲊鿴鲒鲘鲞鲕䲟鲖鲔鲛鲑鲜鲓鲪鲝鲧鲠鲩鲤鲨鲬鲻鲯鲭鲞鲷鲴鲱鲵鲲鲳鲸鲮鲰鲶鲺鳀鲫鳊鳈鲗鳂䲠鲽鳇䲡鳅鲾鳄鳆鳃鳁鳒鳑鳋鲥鳏䲢鳎鳐鳍鳁鲢鳌鳓鳘鲦鲣鲹鳗鳛鳔鳉鳙鳕鳖鳟鳝鳜鳞鲟鲼鲎鲙鳣鳡鳢鲿鲚鳠鳄鲈鲡鸟凫鸠凫鸤凤鸣鸢䴓鸩鸨鸦鸰鸵鸳鸲鸮鸱鸪鸯鸭鸸鸹鸻䴕鸿鸽䴔鸺鸼鹀鹃鹆鹁鹈鹅鹄鹉鹌鹏鹐鹎鹊鹓鹍䴖鸫鹑鹒鹋鹙鹕鹗鹖鹛鹜䴗鸧莺鹟鹤鹠鹡鹘鹣鹚鹢鹞鸡䴘䴘鹝鹧鹥鸥鸷鹨鸶鹪鹔鹩鹫鹇鹬鹰鹭鸴㶉鹯䴙鹱鹲鸬鹴鹦鹳鹂鸾卤咸鹾硷盐丽麦麸曲麹面么么黄黉点党黪霉黡黩黾鼋鼌鼍冬鼹齐斋齑齿龀龁龂龅龇龃龆龄出龈龊龉龋腭龌龙厐庞䶮龚龛龟䜤䲤鿒鿟鿸';
+const ZH_FOLD=new Map([...ZH_TRADITIONAL].map((c,i)=>[c,ZH_SIMPLIFIED[i]]));
+const foldChinese=value=>value.replace(/[\u3400-\u9fff\uf900-\ufaff]/g,c=>ZH_FOLD.get(c)||c);
+
 // Optional server-only fallback. No credentials, prompts or model output reach clients.
 const titleMatchMemory = new Map(), titleMatchPending = new Map();
 const LLM_TIMEOUT_MS = 25000;
@@ -500,7 +507,8 @@ function titleMatchFailure(error){
 function titleMatchError(reason,status){const error=new Error('Title matching unavailable');error.matchReason=reason;if(Number.isInteger(status))error.status=status;return error;}
 // Either matcher enables title matching; exact matches never need one.
 const matcherConfigured = env => Boolean(env.JEV_API_KEY || env.JEV_COOKIE || env.TITLE_MATCH_LLM_API_KEY);
-const matchTitleKey = value => String(value || '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+// Traditional and Simplified spellings compare equal: 動畫瘋/Anime1 write 轉生就是劍, Bangumi 转生就是剑.
+const matchTitleKey = value => foldChinese(String(value || '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]/gu, ''));
 const SEASON_SUFFIX=/(?:\s*[（(]?\s*(?:第[一二三四五六七八九十\d]+[季期部]|(?:season|s)\s*\d+|\d+(?:st|nd|rd|th)\s*season|(?<![A-Za-z])[IVXⅠⅡⅢⅣⅤ]+|\d+)\s*[）)]?)$/i;
 function titleQueries(title) {
   // Split at a subtitle separator only after a real prefix: "Re:從零開始…" must not search for "Re".
@@ -510,7 +518,8 @@ function titleQueries(title) {
   // Substring search (動畫瘋) misses on spacing and mixed scripts: "SPY×FAMILY間諜家家酒" vs
   // "SPY×FAMILY 間諜家家酒 Season 3". Also try the longest CJK run and the leading Latin run.
   const cjk=[root,unseasoned].map(x=>(x.match(/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}ー・！!？?、，]+/gu)||[]).map(x=>x.replace(/[・！!？?、，]+$/,'')).sort((a,b)=>b.length-a.length)[0]).find(Boolean);
-  const latin=root.match(/^[A-Za-z0-9][A-Za-z0-9×.&'! ]*[A-Za-z0-9]/)?.[0];
+  // The Latin run may also follow the CJK name: "闇機 DARK MACHINE" is listed on Bangumi as "暗机 DARK MACHINE".
+  const latin=(root.match(/[A-Za-z0-9][A-Za-z0-9×.&'! ]*[A-Za-z0-9]/g)||[]).sort((a,b)=>b.length-a.length)[0];
   const parts=[cjk&&matchTitleKey(cjk).length>=3?cjk:'',latin&&matchTitleKey(latin).length>=4?latin:''];
   return [...new Set([title, root, unseasoned, ...parts].filter(x=>matchTitleKey(x).length>=2))].slice(0,5).map(x => x.slice(0,100));
 }
@@ -548,7 +557,7 @@ async function titleMatchCached(key, load, allowLoad = true, context = {}) {
   if (titleMatchPending.size >= 4) { titleMatchLog('cache',{...context,reason:'busy'});return null; }
   const task = (async () => {
     const cache = globalThis.caches?.default;
-    const request = new Request('https://samsung-anime1-cache.invalid/title-match/v4/' + encodeURIComponent(key));
+    const request = new Request('https://samsung-anime1-cache.invalid/title-match/v6/' + encodeURIComponent(key));
     const hit = await cache?.match(request).catch(() => null);
     let data = null, ttl = 300, reason;
     if (hit) { const entry = await hit.json();data = entry.data;reason=entry.reason;ttl=Math.max(1,Math.floor((entry.expires-Date.now())/1000));reportHit(entry,'edge'); }
@@ -688,6 +697,20 @@ const CATALOG_UA = 'SamsungAnime1/1.1 (https://github.com/owen800q/Samsung-anime
 const catalogMemory = new Map();
 const catalogPending = new Map();
 let catalogueSnapshot = null;
+// Bangumi matches found at runtime live in one Durable Object so every isolate sees them:
+// the Cache API is a no-op on workers.dev, and the home grid only shows covers for mapped titles.
+let matchStore = null;
+// Bump when matching improves: stored misses from an older matcher are then retried instead of trusted.
+const MATCH_VERSION = 2;
+function useCatalogueStore(env) {
+  if (matchStore || !env?.WATCH_HISTORY) return;
+  const call = (init, query = '') => env.WATCH_HISTORY.get(env.WATCH_HISTORY.idFromName('title-match:v1')).fetch('https://history.internal/title-matches' + query, init);
+  matchStore = {
+    get: async id => { const r = await call(undefined, '?id=' + id); if (!r.ok) { await r.body?.cancel(); return null; } return (await r.json()).match || null; },
+    list: async () => { const r = await call(); if (!r.ok) { await r.body?.cancel(); throw new Error('Match store unavailable'); } return (await r.json()).matches || {}; },
+    put: async entry => { const r = await call({method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(entry)}); await r.body?.cancel(); },
+  };
+}
 const seedById = new Map(CATALOG_SEED.entries.map(item => [item.id,item]));
 const normalTitle = s => String(s).normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]/gu,'');
 const GENRES = ['奇幻','戀愛','搞笑','日常','科幻','冒險','戰鬥','懸疑','運動','音樂','治癒','機戰'];
@@ -725,9 +748,13 @@ async function catalogueIndex() {
   try {
     const rows=await catalogueJSON('https://anime1.me/animelist.json',{},300);
     if(!Array.isArray(rows)||rows.length<10)throw new Error('Unexpected source catalogue');
+    const stored=await matchStore?.list().catch(()=>null)||{};
     const items=rows.filter(r=>Array.isArray(r)&&Number.isInteger(r[0])&&r[0]>0&&typeof r[1]==='string').map(r=>{
-      const seed=seedById.get(r[0]);const match=seed&&normalTitle(seed.title)===normalTitle(r[1])?seed:null;
-      return {id:r[0],title:plainText(r[1]),episodes:plainText(String(r[2]||'')),year:String(r[3]||''),season:String(r[4]||''),bgmId:match?.bgmId||null,format:String(r[2]).includes('劇場版')?'movie':match?.format||(/^(OVA|SP)/.test(String(r[2]))?'ova':'unknown'),aliases:match?.aliases||[]};
+      const seed=seedById.get(r[0]);let match=seed&&normalTitle(seed.title)===normalTitle(r[1])?seed:null;
+      // A stored entry applies only while the source still lists the same title and year.
+      const found=stored[r[0]],current=found&&found.title===plainText(r[1])&&found.year===String(r[3]||'');
+      if(!match&&current&&found.bgmId)match=found;
+      return {...(!match&&current&&found.v===MATCH_VERSION&&found.expires>Date.now()?{bgmMissing:true}:{}),id:r[0],title:plainText(r[1]),episodes:plainText(String(r[2]||'')),year:String(r[3]||''),season:String(r[4]||''),bgmId:match?.bgmId||null,format:String(r[2]).includes('劇場版')?'movie':match?.format||(/^(OVA|SP)/.test(String(r[2]))?'ova':'unknown'),aliases:match?.aliases||[]};
     });
     const value={items,stale:false};catalogueSnapshot={value,expires:Date.now()+300000};return value;
   } catch {const value={items:CATALOG_SEED.entries,stale:true};catalogueSnapshot={value,expires:Date.now()+30000};return value;}
@@ -740,8 +767,9 @@ function metadata(subject, sourceId) {
   try {const u=new URL(image);if(u.protocol==='https:'&&u.hostname==='lain.bgm.tv'&&!u.port&&!u.username&&!u.password&&/^\/(?:r\/\d+\/)?pic\/cover\/[a-z]\/[a-zA-Z0-9_./-]+\.(?:jpg|png|webp)$/.test(u.pathname)&&!u.search&&!u.hash)safeImage=u.href;}catch{}
   return {id:sourceId,bgmId:subject.id,name:subject.name_cn||subject.name,summary:plainText(subject.summary||''),score:subject.rating?.total>0?subject.rating.score:null,ratingCount:subject.rating?.total||0,rank:Number.isInteger(subject.rating?.rank)&&subject.rating.rank>0?subject.rating.rank:null,tags:(subject.tags||[]).slice(0,8).map(t=>plainText(t.name)),cover:safeImage?'/api/cover?id='+sourceId:null,image:safeImage,bangumiUrl:'https://bgm.tv/subject/'+subject.id};
 }
-async function subjectMetadata(item) {
-  item = await resolveCatalogueTitle(item);
+// lookup is for single-title requests; grid batches stay cache-only so they never fan out into Bangumi searches.
+async function subjectMetadata(item, lookup = false) {
+  item = await resolveCatalogueTitle(item, {}, lookup);
   if(!item.bgmId)return null;
   return metadata(await catalogueJSON('https://api.bgm.tv/v0/subjects/'+item.bgmId,{},86400),item.id);
 }
@@ -774,13 +802,22 @@ async function browseCatalogue(params) {
     }
     return {items:matches,years,genres:GENRES,total:null,nextPage:more?next:null,stale,genre:Boolean(genre),sort:order};
   }
-  return {items:filtered.slice((page-1)*24,page*24).map(publicItem),years,genres:GENRES,total:filtered.length,nextPage:page*24<filtered.length?page+1:null,stale,genre:false,sort:null};
+  return {items:(await withStoredMatches(filtered.slice((page-1)*24,page*24))).map(publicItem),years,genres:GENRES,total:filtered.length,nextPage:page*24<filtered.length?page+1:null,stale,genre:false,sort:null};
+}
+// The catalogue snapshot lives five minutes per isolate, so a title matched since (often by opening its
+// detail page) would come back unmapped and its card would never get a cover. Re-read the store for the page.
+let storedMatches=null;
+async function withStoredMatches(page) {
+  if(!matchStore||!page.some(x=>!x.bgmId&&!x.bgmMissing))return page;
+  if(!storedMatches||storedMatches.expires<=Date.now())storedMatches={value:matchStore.list().catch(()=>({})),expires:Date.now()+15000};
+  const stored=await storedMatches.value;
+  return page.map(item=>{const found=!item.bgmId&&stored[item.id];return found?.bgmId&&found.title===item.title&&found.year===item.year?{...item,bgmId:found.bgmId,aliases:found.aliases||[]}:item;});
 }
 async function catalogueMetadata(ids) {
   if(!/^\d+(?:,\d+){0,7}$/.test(ids||''))throw new PlaybackError('動畫資料編號無效。',400);
   const {items}=await catalogueIndex();const byId=new Map(items.map(x=>[x.id,x]));
   const requested=[...new Set(ids.split(',').map(Number))];const details={};let cursor=0;
-  await Promise.all(Array.from({length:Math.min(3,requested.length)},async()=>{while(cursor<requested.length){const id=requested[cursor++];try{const item=byId.get(id);const data=item?await subjectMetadata(item):null;if(data)delete data.image;details[id]=data;}catch{details[id]=null;}}}));
+  await Promise.all(Array.from({length:Math.min(3,requested.length)},async()=>{while(cursor<requested.length){const id=requested[cursor++];try{const item=byId.get(id);const data=item?await subjectMetadata(item,requested.length===1):null;if(data)delete data.image;details[id]=data;}catch{details[id]=null;}}}));
   return {details};
 }
 async function catalogueSeries(id, page) {
@@ -789,18 +826,19 @@ async function catalogueSeries(id, page) {
   if(!item)throw new PlaybackError('Anime1 目錄沒有這套動畫。',404);
   return listSeriesEpisodes(item.id,item.title,page);
 }
-async function catalogueItem(id, env = {}) {
+// lookup: search Bangumi for an unmapped title. Exact Traditional/Simplified matches need no matcher secret.
+async function catalogueItem(id, env = {}, lookup = matcherConfigured(env)) {
   if(!/^\d{1,10}$/.test(id||''))throw new PlaybackError('動畫編號無效。',400);
   const {items}=await catalogueIndex();const item=items.find(x=>x.id===Number(id));
   if(!item)throw new PlaybackError('目錄找不到這套動畫。',404);
-  const resolved=await resolveCatalogueTitle(item,env);
+  const resolved=await resolveCatalogueTitle(item,env,lookup);
   return {item:{...publicItem(resolved),aliases:resolved.aliases||[]}};
 }
 // Bangumi's website API exposes public short comments (the v0 API does not).
 // Keep this separate from metadata/episodes so an upstream outage cannot block playback.
 async function catalogueComments(id, page = 1, env = {}) {
   if(!Number.isInteger(page)||page<1||page>500)throw new PlaybackError('評論頁碼無效。',400);
-  const {item}=await catalogueItem(id,env);
+  const {item}=await catalogueItem(id,env,true);
   if(!item.bgmId)return {comments:[],total:0,page,nextPage:null,bangumiUrl:null,matched:false};
   const limit=20,offset=(page-1)*limit;
   const bangumiUrl='https://bgm.tv/subject/'+item.bgmId+'/comments';
@@ -823,7 +861,7 @@ async function catalogueCover(id) {
   if(!/^\d{1,10}$/.test(id||''))throw new PlaybackError('封面編號無效。',400);
   const cache=globalThis.caches?.default;const key=new Request('https://samsung-anime1-cache.invalid/cover/'+id);
   const cached=await cache?.match(key).catch(()=>null);if(cached)return cached;
-  const {items}=await catalogueIndex();const item=items.find(x=>x.id===Number(id));const detail=item?await subjectMetadata(item):null;
+  const {items}=await catalogueIndex();const item=items.find(x=>x.id===Number(id));const detail=item?await subjectMetadata(item,true).catch(()=>subjectMetadata(item,true)):null;
   if(!detail?.image)return new Response(null,{status:404});
   const response=await fetch(detail.image,{headers:{'User-Agent':CATALOG_UA},redirect:'manual',signal:AbortSignal.timeout(30000)});
   if(!response.ok||!/^image\/(?:jpeg|png|webp)(?:;|$)/i.test(response.headers.get('content-type')||'')){await response.body?.cancel();return new Response(null,{status:502});}
@@ -836,27 +874,43 @@ async function catalogueCover(id) {
 
 
 const resolvedCatalogueTitles = new Map();
-async function resolveCatalogueTitle(item, env = {}) {
-  if(item.bgmId)return item;
+async function resolveCatalogueTitle(item, env = {}, lookup = matcherConfigured(env)) {
+  if(item.bgmId||item.bgmMissing)return item;
   const diagnostic={scope:'bangumi',seriesId:item.id};
   if(env.ASSETS&&!matcherConfigured(env))titleMatchLog('configuration',{...diagnostic,reason:'missing_secret'});
   const key=JSON.stringify([item.id,item.title,item.year]);
   const known=resolvedCatalogueTitles.get(key);
   if(known && known.expires>Date.now())return {...item,...known.value};
+  // This isolate's catalogue copy may predate a match another isolate stored; ask the store before searching again.
+  const stored=await matchStore?.get(item.id).catch(()=>null);
+  if(stored&&stored.title===item.title&&stored.year===item.year){
+    if(stored.bgmId)return {...item,bgmId:stored.bgmId,aliases:stored.aliases};
+    if(stored.v===MATCH_VERSION&&stored.expires>Date.now())return {...item,bgmMissing:true};
+  }
   const value=await titleMatchCached('bangumi:'+key,async()=>{
     const candidates=new Map();let failure;
     // A failing query (often the long full title) must not hide the shorter one that finds the show.
-    for(const query of titleQueries(item.title)){
+    // Bangumi names are Simplified, and its search answers HTTP 500 for some Traditional queries (FX戰士久留美).
+    for(const query of [...new Set([foldChinese(item.title),...titleQueries(item.title)])]){
       let result;
-      try{result=await catalogueJSON('https://api.bgm.tv/v0/search/subjects?limit=20',{method:'POST',signal:AbortSignal.timeout(10000),headers:{'Content-Type':'application/json'},body:JSON.stringify({keyword:query,filter:{type:[2],nsfw:false}})},3600);}
+      // Bangumi's search intermittently answers 500/502; one retry keeps a blip from caching a miss for an hour.
+      const search=()=>catalogueJSON('https://api.bgm.tv/v0/search/subjects?limit=20',{method:'POST',signal:AbortSignal.timeout(10000),headers:{'Content-Type':'application/json'},body:JSON.stringify({keyword:query,filter:{type:[2],nsfw:false}})},3600);
+      try{result=await search().catch(search);}
       catch(error){failure=error;titleMatchLog('search',{...diagnostic,reason:'candidate_error'});continue;}
       for(const x of result.data||[])if(x.type===2&&Number.isSafeInteger(x.id))candidates.set(x.id,{id:x.id,title:x.name_cn||x.name,aliases:[x.name,x.name_cn].filter(Boolean),year:String(x.date||'').slice(0,4),date:x.date});
-      if([...candidates.values()].some(x=>itemYears(item).includes(x.year)&&[x.title,...x.aliases].some(n=>normalTitle(n)===normalTitle(item.title))))break;
+      if([...candidates.values()].some(x=>itemYears(item).includes(x.year)&&[x.title,...x.aliases].some(n=>matchTitleKey(n)===matchTitleKey(item.title))))break;
     }
     if(!candidates.size&&failure)throw failure;
     const selected=await chooseTitle(item,[...candidates.values()],env,diagnostic);
-    return selected?{bgmId:selected.id,aliases:[...new Set([...(item.aliases||[]),selected.title,...selected.aliases])]}:null;
-  },matcherConfigured(env),diagnostic);
+    // A miss after a failed search may just be the outage: report it as a failure (short retry), not a 1-hour miss.
+    if(!selected&&failure)throw failure;
+    const value=selected?{bgmId:selected.id,aliases:[...new Set([...(item.aliases||[]),selected.title,...selected.aliases])]}:null;
+    // Remember a miss only when a matcher was asked; without one, configuring it later should retry.
+    if(value||matcherConfigured(env))await matchStore?.put({v:MATCH_VERSION,id:item.id,title:item.title,year:item.year,bgmId:value?.bgmId??null,aliases:value?.aliases??[]}).catch(()=>{});
+    return value;
+  },lookup,diagnostic);
+  // Let browse results in this isolate show the match before the next catalogue refresh.
+  const listed=value&&catalogueSnapshot?.value.items.find(x=>x.id===item.id&&x.title===item.title);if(listed&&!listed.bgmId)Object.assign(listed,value);
   if(value){while(resolvedCatalogueTitles.size>=300)resolvedCatalogueTitles.delete(resolvedCatalogueTitles.keys().next().value);resolvedCatalogueTitles.set(key,{value,expires:Date.now()+3600000});}
   return value?{...item,...value}:item;
 }
@@ -1507,6 +1561,8 @@ export class WatchHistory {
     if(path.startsWith('/remote/'))return this.remote.fetch(request);
     if(path==='/pairing-export'||path==='/pairing-import')return pairingHistory(this.storage,request,validProgress,validDanmakuSetting);
     if(new URL(request.url).pathname==='/danmaku-settings')return this.danmakuSettings(request);
+    // Internal only, like /jev-session: asked on the 'title-match:v1' instance by catalog.js.
+    if(new URL(request.url).pathname==='/title-matches')return this.titleMatches(request);
     // Internal only: historyRoute never forwards this path, and only the 'jev-session:v1' instance is asked.
     if(new URL(request.url).pathname==='/jev-session')return this.jevSession(request);
     if(request.method==='GET'){
@@ -1544,6 +1600,17 @@ export class WatchHistory {
       for(const removed of index.splice(500))await tx.delete('dm:'+removed);
       await tx.put(key,entry);await tx.put('dm-index',index);return historyResponse({entry});
     });
+  }
+  // Runtime Bangumi matches keyed by Anime1 series id. Misses expire so new Bangumi entries are found later.
+  async titleMatches(request){
+    const one=new URL(request.url).searchParams.get('id');
+    if(request.method==='GET'&&/^\d{1,10}$/.test(one||''))return historyResponse({match:await this.storage.get('tm:'+one)||null});
+    if(request.method==='GET'){const matches={};for(const [key,value] of await this.storage.list({prefix:'tm:'}))matches[key.slice(3)]=value;return historyResponse({matches});}
+    let data;try{data=await request.json();}catch{}
+    const text=(x,n)=>typeof x==='string'&&x.length<=n;
+    if(request.method!=='PUT'||!data||!Number.isSafeInteger(data.id)||data.id<=0||!text(data.title,200)||!text(data.year,20)||data.bgmId!==null&&!(Number.isSafeInteger(data.bgmId)&&data.bgmId>0)||!Array.isArray(data.aliases)||data.aliases.length>20||!data.aliases.every(x=>text(x,200)))return historyResponse({error:'Invalid match'},400);
+    const entry={v:Number.isSafeInteger(data.v)?data.v:0,title:data.title,year:data.year,bgmId:data.bgmId,aliases:data.aliases,...(data.bgmId?{}:{expires:Date.now()+6*3600000})};
+    await this.storage.put('tm:'+data.id,entry);return historyResponse({ok:true});
   }
   // Serialise refreshes: Supabase rotates refresh tokens, so two concurrent refreshes would race.
   async jevSession(request){
@@ -1619,6 +1686,7 @@ export default {
 async function route(request, env, url) {
     try {
       if (!allowedCaller(request)) throw new PlaybackError('請從播放器網頁開啟影片。', 403);
+      useCatalogueStore(env);
       if (url.pathname.startsWith('/api/pairing/')) return await pairingRoute(request,env);
       if (url.pathname.startsWith('/api/remote/')) return await remoteRoute(request,env);
       if (url.pathname === '/api/history' || url.pathname === '/api/danmaku/settings') return await historyRoute(request,env);
@@ -1633,7 +1701,7 @@ async function route(request, env, url) {
       if (request.method === 'GET' && url.pathname === '/api/danmaku/comments') return Response.json(await getDanmaku(url.searchParams.get('provider'),url.searchParams.get('id'),Number(url.searchParams.get('segment')||1),env),{headers:{'Cache-Control':'no-store'}});
       if (url.pathname === '/api/health' && request.method === 'GET') return Response.json({ service: 'samsung-anime1', authentication: 'none', version: 'catalog-1' }, { headers: { 'Cache-Control': 'no-store' } });
       if (request.method === 'GET' && url.pathname === '/api/catalog') return Response.json(await browseCatalogue(url.searchParams),{headers:{'Cache-Control':'no-store'}});
-      if (request.method === 'GET' && url.pathname === '/api/catalog-item') return Response.json(await catalogueItem(url.searchParams.get('id'),url.searchParams.get('match')==='1'?env:{}),{headers:{'Cache-Control':'no-store'}});
+      if (request.method === 'GET' && url.pathname === '/api/catalog-item') return Response.json(await catalogueItem(url.searchParams.get('id'),...url.searchParams.get('match')==='1'?[env,true]:[{},false]),{headers:{'Cache-Control':'no-store'}});
       if (request.method === 'GET' && url.pathname === '/api/comments') return Response.json(await catalogueComments(url.searchParams.get('id'),Number(url.searchParams.get('page')||1),env),{headers:{'Cache-Control':'no-store'}});
       if (request.method === 'GET' && url.pathname === '/api/metadata') return Response.json(await catalogueMetadata(url.searchParams.get('ids')),{headers:{'Cache-Control':'no-store'}});
       if (request.method === 'GET' && url.pathname === '/api/series') return Response.json(await catalogueSeries(url.searchParams.get('id'),Number(url.searchParams.get('page')||1)),{headers:{'Cache-Control':'no-store'}});

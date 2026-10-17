@@ -1,11 +1,26 @@
-import { chooseTitle, titleQueries, titleMatchCached, titleMatchLog, itemYears, matcherConfigured } from './title-match.js';
+import { chooseTitle, titleQueries, titleMatchCached, titleMatchLog, itemYears, matcherConfigured, matchTitleKey } from './title-match.js';
 import { CATALOG_SEED } from './catalog-data.js';
+import { foldChinese } from './zh-fold.js';
 import { PlaybackError, plainText, listSeriesEpisodes } from './adapter.js';
 
 const CATALOG_UA = 'SamsungAnime1/1.1 (https://github.com/owen800q/Samsung-anime1)';
 const catalogMemory = new Map();
 const catalogPending = new Map();
 let catalogueSnapshot = null;
+// Bangumi matches found at runtime live in one Durable Object so every isolate sees them:
+// the Cache API is a no-op on workers.dev, and the home grid only shows covers for mapped titles.
+let matchStore = null;
+// Bump when matching improves: stored misses from an older matcher are then retried instead of trusted.
+const MATCH_VERSION = 2;
+export function useCatalogueStore(env) {
+  if (matchStore || !env?.WATCH_HISTORY) return;
+  const call = (init, query = '') => env.WATCH_HISTORY.get(env.WATCH_HISTORY.idFromName('title-match:v1')).fetch('https://history.internal/title-matches' + query, init);
+  matchStore = {
+    get: async id => { const r = await call(undefined, '?id=' + id); if (!r.ok) { await r.body?.cancel(); return null; } return (await r.json()).match || null; },
+    list: async () => { const r = await call(); if (!r.ok) { await r.body?.cancel(); throw new Error('Match store unavailable'); } return (await r.json()).matches || {}; },
+    put: async entry => { const r = await call({method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(entry)}); await r.body?.cancel(); },
+  };
+}
 const seedById = new Map(CATALOG_SEED.entries.map(item => [item.id,item]));
 const normalTitle = s => String(s).normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]/gu,'');
 export const GENRES = ['奇幻','戀愛','搞笑','日常','科幻','冒險','戰鬥','懸疑','運動','音樂','治癒','機戰'];
@@ -43,9 +58,13 @@ export async function catalogueIndex() {
   try {
     const rows=await catalogueJSON('https://anime1.me/animelist.json',{},300);
     if(!Array.isArray(rows)||rows.length<10)throw new Error('Unexpected source catalogue');
+    const stored=await matchStore?.list().catch(()=>null)||{};
     const items=rows.filter(r=>Array.isArray(r)&&Number.isInteger(r[0])&&r[0]>0&&typeof r[1]==='string').map(r=>{
-      const seed=seedById.get(r[0]);const match=seed&&normalTitle(seed.title)===normalTitle(r[1])?seed:null;
-      return {id:r[0],title:plainText(r[1]),episodes:plainText(String(r[2]||'')),year:String(r[3]||''),season:String(r[4]||''),bgmId:match?.bgmId||null,format:String(r[2]).includes('劇場版')?'movie':match?.format||(/^(OVA|SP)/.test(String(r[2]))?'ova':'unknown'),aliases:match?.aliases||[]};
+      const seed=seedById.get(r[0]);let match=seed&&normalTitle(seed.title)===normalTitle(r[1])?seed:null;
+      // A stored entry applies only while the source still lists the same title and year.
+      const found=stored[r[0]],current=found&&found.title===plainText(r[1])&&found.year===String(r[3]||'');
+      if(!match&&current&&found.bgmId)match=found;
+      return {...(!match&&current&&found.v===MATCH_VERSION&&found.expires>Date.now()?{bgmMissing:true}:{}),id:r[0],title:plainText(r[1]),episodes:plainText(String(r[2]||'')),year:String(r[3]||''),season:String(r[4]||''),bgmId:match?.bgmId||null,format:String(r[2]).includes('劇場版')?'movie':match?.format||(/^(OVA|SP)/.test(String(r[2]))?'ova':'unknown'),aliases:match?.aliases||[]};
     });
     const value={items,stale:false};catalogueSnapshot={value,expires:Date.now()+300000};return value;
   } catch {const value={items:CATALOG_SEED.entries,stale:true};catalogueSnapshot={value,expires:Date.now()+30000};return value;}
@@ -58,8 +77,9 @@ function metadata(subject, sourceId) {
   try {const u=new URL(image);if(u.protocol==='https:'&&u.hostname==='lain.bgm.tv'&&!u.port&&!u.username&&!u.password&&/^\/(?:r\/\d+\/)?pic\/cover\/[a-z]\/[a-zA-Z0-9_./-]+\.(?:jpg|png|webp)$/.test(u.pathname)&&!u.search&&!u.hash)safeImage=u.href;}catch{}
   return {id:sourceId,bgmId:subject.id,name:subject.name_cn||subject.name,summary:plainText(subject.summary||''),score:subject.rating?.total>0?subject.rating.score:null,ratingCount:subject.rating?.total||0,rank:Number.isInteger(subject.rating?.rank)&&subject.rating.rank>0?subject.rating.rank:null,tags:(subject.tags||[]).slice(0,8).map(t=>plainText(t.name)),cover:safeImage?'/api/cover?id='+sourceId:null,image:safeImage,bangumiUrl:'https://bgm.tv/subject/'+subject.id};
 }
-async function subjectMetadata(item) {
-  item = await resolveCatalogueTitle(item);
+// lookup is for single-title requests; grid batches stay cache-only so they never fan out into Bangumi searches.
+async function subjectMetadata(item, lookup = false) {
+  item = await resolveCatalogueTitle(item, {}, lookup);
   if(!item.bgmId)return null;
   return metadata(await catalogueJSON('https://api.bgm.tv/v0/subjects/'+item.bgmId,{},86400),item.id);
 }
@@ -92,13 +112,22 @@ export async function browseCatalogue(params) {
     }
     return {items:matches,years,genres:GENRES,total:null,nextPage:more?next:null,stale,genre:Boolean(genre),sort:order};
   }
-  return {items:filtered.slice((page-1)*24,page*24).map(publicItem),years,genres:GENRES,total:filtered.length,nextPage:page*24<filtered.length?page+1:null,stale,genre:false,sort:null};
+  return {items:(await withStoredMatches(filtered.slice((page-1)*24,page*24))).map(publicItem),years,genres:GENRES,total:filtered.length,nextPage:page*24<filtered.length?page+1:null,stale,genre:false,sort:null};
+}
+// The catalogue snapshot lives five minutes per isolate, so a title matched since (often by opening its
+// detail page) would come back unmapped and its card would never get a cover. Re-read the store for the page.
+let storedMatches=null;
+async function withStoredMatches(page) {
+  if(!matchStore||!page.some(x=>!x.bgmId&&!x.bgmMissing))return page;
+  if(!storedMatches||storedMatches.expires<=Date.now())storedMatches={value:matchStore.list().catch(()=>({})),expires:Date.now()+15000};
+  const stored=await storedMatches.value;
+  return page.map(item=>{const found=!item.bgmId&&stored[item.id];return found?.bgmId&&found.title===item.title&&found.year===item.year?{...item,bgmId:found.bgmId,aliases:found.aliases||[]}:item;});
 }
 export async function catalogueMetadata(ids) {
   if(!/^\d+(?:,\d+){0,7}$/.test(ids||''))throw new PlaybackError('動畫資料編號無效。',400);
   const {items}=await catalogueIndex();const byId=new Map(items.map(x=>[x.id,x]));
   const requested=[...new Set(ids.split(',').map(Number))];const details={};let cursor=0;
-  await Promise.all(Array.from({length:Math.min(3,requested.length)},async()=>{while(cursor<requested.length){const id=requested[cursor++];try{const item=byId.get(id);const data=item?await subjectMetadata(item):null;if(data)delete data.image;details[id]=data;}catch{details[id]=null;}}}));
+  await Promise.all(Array.from({length:Math.min(3,requested.length)},async()=>{while(cursor<requested.length){const id=requested[cursor++];try{const item=byId.get(id);const data=item?await subjectMetadata(item,requested.length===1):null;if(data)delete data.image;details[id]=data;}catch{details[id]=null;}}}));
   return {details};
 }
 export async function catalogueSeries(id, page) {
@@ -107,18 +136,19 @@ export async function catalogueSeries(id, page) {
   if(!item)throw new PlaybackError('Anime1 目錄沒有這套動畫。',404);
   return listSeriesEpisodes(item.id,item.title,page);
 }
-export async function catalogueItem(id, env = {}) {
+// lookup: search Bangumi for an unmapped title. Exact Traditional/Simplified matches need no matcher secret.
+export async function catalogueItem(id, env = {}, lookup = matcherConfigured(env)) {
   if(!/^\d{1,10}$/.test(id||''))throw new PlaybackError('動畫編號無效。',400);
   const {items}=await catalogueIndex();const item=items.find(x=>x.id===Number(id));
   if(!item)throw new PlaybackError('目錄找不到這套動畫。',404);
-  const resolved=await resolveCatalogueTitle(item,env);
+  const resolved=await resolveCatalogueTitle(item,env,lookup);
   return {item:{...publicItem(resolved),aliases:resolved.aliases||[]}};
 }
 // Bangumi's website API exposes public short comments (the v0 API does not).
 // Keep this separate from metadata/episodes so an upstream outage cannot block playback.
 export async function catalogueComments(id, page = 1, env = {}) {
   if(!Number.isInteger(page)||page<1||page>500)throw new PlaybackError('評論頁碼無效。',400);
-  const {item}=await catalogueItem(id,env);
+  const {item}=await catalogueItem(id,env,true);
   if(!item.bgmId)return {comments:[],total:0,page,nextPage:null,bangumiUrl:null,matched:false};
   const limit=20,offset=(page-1)*limit;
   const bangumiUrl='https://bgm.tv/subject/'+item.bgmId+'/comments';
@@ -141,7 +171,7 @@ export async function catalogueCover(id) {
   if(!/^\d{1,10}$/.test(id||''))throw new PlaybackError('封面編號無效。',400);
   const cache=globalThis.caches?.default;const key=new Request('https://samsung-anime1-cache.invalid/cover/'+id);
   const cached=await cache?.match(key).catch(()=>null);if(cached)return cached;
-  const {items}=await catalogueIndex();const item=items.find(x=>x.id===Number(id));const detail=item?await subjectMetadata(item):null;
+  const {items}=await catalogueIndex();const item=items.find(x=>x.id===Number(id));const detail=item?await subjectMetadata(item,true).catch(()=>subjectMetadata(item,true)):null;
   if(!detail?.image)return new Response(null,{status:404});
   const response=await fetch(detail.image,{headers:{'User-Agent':CATALOG_UA},redirect:'manual',signal:AbortSignal.timeout(30000)});
   if(!response.ok||!/^image\/(?:jpeg|png|webp)(?:;|$)/i.test(response.headers.get('content-type')||'')){await response.body?.cancel();return new Response(null,{status:502});}
@@ -154,27 +184,43 @@ export async function catalogueCover(id) {
 
 
 const resolvedCatalogueTitles = new Map();
-async function resolveCatalogueTitle(item, env = {}) {
-  if(item.bgmId)return item;
+async function resolveCatalogueTitle(item, env = {}, lookup = matcherConfigured(env)) {
+  if(item.bgmId||item.bgmMissing)return item;
   const diagnostic={scope:'bangumi',seriesId:item.id};
   if(env.ASSETS&&!matcherConfigured(env))titleMatchLog('configuration',{...diagnostic,reason:'missing_secret'});
   const key=JSON.stringify([item.id,item.title,item.year]);
   const known=resolvedCatalogueTitles.get(key);
   if(known && known.expires>Date.now())return {...item,...known.value};
+  // This isolate's catalogue copy may predate a match another isolate stored; ask the store before searching again.
+  const stored=await matchStore?.get(item.id).catch(()=>null);
+  if(stored&&stored.title===item.title&&stored.year===item.year){
+    if(stored.bgmId)return {...item,bgmId:stored.bgmId,aliases:stored.aliases};
+    if(stored.v===MATCH_VERSION&&stored.expires>Date.now())return {...item,bgmMissing:true};
+  }
   const value=await titleMatchCached('bangumi:'+key,async()=>{
     const candidates=new Map();let failure;
     // A failing query (often the long full title) must not hide the shorter one that finds the show.
-    for(const query of titleQueries(item.title)){
+    // Bangumi names are Simplified, and its search answers HTTP 500 for some Traditional queries (FX戰士久留美).
+    for(const query of [...new Set([foldChinese(item.title),...titleQueries(item.title)])]){
       let result;
-      try{result=await catalogueJSON('https://api.bgm.tv/v0/search/subjects?limit=20',{method:'POST',signal:AbortSignal.timeout(10000),headers:{'Content-Type':'application/json'},body:JSON.stringify({keyword:query,filter:{type:[2],nsfw:false}})},3600);}
+      // Bangumi's search intermittently answers 500/502; one retry keeps a blip from caching a miss for an hour.
+      const search=()=>catalogueJSON('https://api.bgm.tv/v0/search/subjects?limit=20',{method:'POST',signal:AbortSignal.timeout(10000),headers:{'Content-Type':'application/json'},body:JSON.stringify({keyword:query,filter:{type:[2],nsfw:false}})},3600);
+      try{result=await search().catch(search);}
       catch(error){failure=error;titleMatchLog('search',{...diagnostic,reason:'candidate_error'});continue;}
       for(const x of result.data||[])if(x.type===2&&Number.isSafeInteger(x.id))candidates.set(x.id,{id:x.id,title:x.name_cn||x.name,aliases:[x.name,x.name_cn].filter(Boolean),year:String(x.date||'').slice(0,4),date:x.date});
-      if([...candidates.values()].some(x=>itemYears(item).includes(x.year)&&[x.title,...x.aliases].some(n=>normalTitle(n)===normalTitle(item.title))))break;
+      if([...candidates.values()].some(x=>itemYears(item).includes(x.year)&&[x.title,...x.aliases].some(n=>matchTitleKey(n)===matchTitleKey(item.title))))break;
     }
     if(!candidates.size&&failure)throw failure;
     const selected=await chooseTitle(item,[...candidates.values()],env,diagnostic);
-    return selected?{bgmId:selected.id,aliases:[...new Set([...(item.aliases||[]),selected.title,...selected.aliases])]}:null;
-  },matcherConfigured(env),diagnostic);
+    // A miss after a failed search may just be the outage: report it as a failure (short retry), not a 1-hour miss.
+    if(!selected&&failure)throw failure;
+    const value=selected?{bgmId:selected.id,aliases:[...new Set([...(item.aliases||[]),selected.title,...selected.aliases])]}:null;
+    // Remember a miss only when a matcher was asked; without one, configuring it later should retry.
+    if(value||matcherConfigured(env))await matchStore?.put({v:MATCH_VERSION,id:item.id,title:item.title,year:item.year,bgmId:value?.bgmId??null,aliases:value?.aliases??[]}).catch(()=>{});
+    return value;
+  },lookup,diagnostic);
+  // Let browse results in this isolate show the match before the next catalogue refresh.
+  const listed=value&&catalogueSnapshot?.value.items.find(x=>x.id===item.id&&x.title===item.title);if(listed&&!listed.bgmId)Object.assign(listed,value);
   if(value){while(resolvedCatalogueTitles.size>=300)resolvedCatalogueTitles.delete(resolvedCatalogueTitles.keys().next().value);resolvedCatalogueTitles.set(key,{value,expires:Date.now()+3600000});}
   return value?{...item,...value}:item;
 }

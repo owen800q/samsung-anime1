@@ -1,6 +1,6 @@
 import { searchDanmaku, resolveDanmaku, getDanmaku, dandanConfigured, matchDandanplay, fallbackDanmaku } from './danmaku-server.js';
 import { resolveEpisode, streamMedia, searchEpisodes, listEpisodes, errorResponse, PlaybackError, allowedCaller, tvAppRequest } from './adapter.js';
-import { browseCatalogue, catalogueMetadata, catalogueSeries, catalogueCover, catalogueItem, catalogueComments } from './catalog.js';
+import { browseCatalogue, catalogueMetadata, catalogueSeries, catalogueCover, catalogueItem, catalogueComments, useCatalogueStore } from './catalog.js';
 import { historyRoute } from './sync-server.js';
 import { pairingRoute } from './pairing-server.js';
 import { remoteRoute } from './remote-server.js';
@@ -46,6 +46,7 @@ export default {
 async function route(request, env, url) {
     try {
       if (!allowedCaller(request)) throw new PlaybackError('請從播放器網頁開啟影片。', 403);
+      useCatalogueStore(env);
       if (url.pathname.startsWith('/api/pairing/')) return await pairingRoute(request,env);
       if (url.pathname.startsWith('/api/remote/')) return await remoteRoute(request,env);
       if (url.pathname === '/api/history' || url.pathname === '/api/danmaku/settings') return await historyRoute(request,env);
@@ -60,7 +61,7 @@ async function route(request, env, url) {
       if (request.method === 'GET' && url.pathname === '/api/danmaku/comments') return Response.json(await getDanmaku(url.searchParams.get('provider'),url.searchParams.get('id'),Number(url.searchParams.get('segment')||1),env),{headers:{'Cache-Control':'no-store'}});
       if (url.pathname === '/api/health' && request.method === 'GET') return Response.json({ service: 'samsung-anime1', authentication: 'none', version: 'catalog-1' }, { headers: { 'Cache-Control': 'no-store' } });
       if (request.method === 'GET' && url.pathname === '/api/catalog') return Response.json(await browseCatalogue(url.searchParams),{headers:{'Cache-Control':'no-store'}});
-      if (request.method === 'GET' && url.pathname === '/api/catalog-item') return Response.json(await catalogueItem(url.searchParams.get('id'),url.searchParams.get('match')==='1'?env:{}),{headers:{'Cache-Control':'no-store'}});
+      if (request.method === 'GET' && url.pathname === '/api/catalog-item') return Response.json(await catalogueItem(url.searchParams.get('id'),...url.searchParams.get('match')==='1'?[env,true]:[{},false]),{headers:{'Cache-Control':'no-store'}});
       if (request.method === 'GET' && url.pathname === '/api/comments') return Response.json(await catalogueComments(url.searchParams.get('id'),Number(url.searchParams.get('page')||1),env),{headers:{'Cache-Control':'no-store'}});
       if (request.method === 'GET' && url.pathname === '/api/metadata') return Response.json(await catalogueMetadata(url.searchParams.get('ids')),{headers:{'Cache-Control':'no-store'}});
       if (request.method === 'GET' && url.pathname === '/api/series') return Response.json(await catalogueSeries(url.searchParams.get('id'),Number(url.searchParams.get('page')||1)),{headers:{'Cache-Control':'no-store'}});

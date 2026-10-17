@@ -94,3 +94,16 @@ test('ranking stops scanning once a page has enough matches and paginates in Ban
   const second=await api.browseCatalogue(new URLSearchParams({sort:'rank',page:'2'}));
   assert.deepEqual(second.items.map(x=>x.id),many.slice(20).map(x=>x.id));assert.equal(second.nextPage,null);assert.deepEqual(offsets,[0,20]);
 });
+
+test('browse picks up a match stored after the catalogue snapshot was taken',async t=>{
+  const api=await fresh();const data=rows();data[0][1]='FX戰士久留美';data[0][3]='2026';
+  const matches={};
+  api.useCatalogueStore({WATCH_HISTORY:{idFromName:x=>x,get:()=>({fetch:async url=>Response.json(new URL(url).searchParams.get('id')?{match:null}:{matches})})}});
+  t.mock.method(globalThis,'fetch',async()=>Response.json(data));
+  assert.equal((await api.browseCatalogue(new URLSearchParams())).items[0].bgmId,null);
+  // Another isolate (e.g. the detail page) matches the title; the snapshot is still fresh here.
+  matches[data[0][0]]={v:2,title:'FX戰士久留美',year:'2026',bgmId:123,aliases:['FX战士久留美']};
+  t.mock.method(Date,'now',()=>performance.timeOrigin+performance.now()+20000);
+  const item=(await api.browseCatalogue(new URLSearchParams())).items[0];
+  assert.equal(item.bgmId,123);assert.equal(item.aliases,undefined);
+});

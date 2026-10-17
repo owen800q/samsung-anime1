@@ -23,6 +23,8 @@ export class WatchHistory {
     if(path.startsWith('/remote/'))return this.remote.fetch(request);
     if(path==='/pairing-export'||path==='/pairing-import')return pairingHistory(this.storage,request,validProgress,validDanmakuSetting);
     if(new URL(request.url).pathname==='/danmaku-settings')return this.danmakuSettings(request);
+    // Internal only, like /jev-session: asked on the 'title-match:v1' instance by catalog.js.
+    if(new URL(request.url).pathname==='/title-matches')return this.titleMatches(request);
     // Internal only: historyRoute never forwards this path, and only the 'jev-session:v1' instance is asked.
     if(new URL(request.url).pathname==='/jev-session')return this.jevSession(request);
     if(request.method==='GET'){
@@ -60,6 +62,17 @@ export class WatchHistory {
       for(const removed of index.splice(500))await tx.delete('dm:'+removed);
       await tx.put(key,entry);await tx.put('dm-index',index);return historyResponse({entry});
     });
+  }
+  // Runtime Bangumi matches keyed by Anime1 series id. Misses expire so new Bangumi entries are found later.
+  async titleMatches(request){
+    const one=new URL(request.url).searchParams.get('id');
+    if(request.method==='GET'&&/^\d{1,10}$/.test(one||''))return historyResponse({match:await this.storage.get('tm:'+one)||null});
+    if(request.method==='GET'){const matches={};for(const [key,value] of await this.storage.list({prefix:'tm:'}))matches[key.slice(3)]=value;return historyResponse({matches});}
+    let data;try{data=await request.json();}catch{}
+    const text=(x,n)=>typeof x==='string'&&x.length<=n;
+    if(request.method!=='PUT'||!data||!Number.isSafeInteger(data.id)||data.id<=0||!text(data.title,200)||!text(data.year,20)||data.bgmId!==null&&!(Number.isSafeInteger(data.bgmId)&&data.bgmId>0)||!Array.isArray(data.aliases)||data.aliases.length>20||!data.aliases.every(x=>text(x,200)))return historyResponse({error:'Invalid match'},400);
+    const entry={v:Number.isSafeInteger(data.v)?data.v:0,title:data.title,year:data.year,bgmId:data.bgmId,aliases:data.aliases,...(data.bgmId?{}:{expires:Date.now()+6*3600000})};
+    await this.storage.put('tm:'+data.id,entry);return historyResponse({ok:true});
   }
   // Serialise refreshes: Supabase rotates refresh tokens, so two concurrent refreshes would race.
   async jevSession(request){
