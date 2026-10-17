@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
-    "test": "node --test tests/*.test.mjs",
+    "build:tv-update": "cd tv && npm ci --no-audit --no-fund && npm run build && node scripts/ota-update.mjs",
+    "test": "node --test tests/*.test.mjs ota/*.test.mjs",
     "check:danmaku": "node scripts/check-danmaku-smoothness.mjs",
     "check:title-match": "node scripts/check-title-match.mjs"
   },

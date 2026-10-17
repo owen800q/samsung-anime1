@@ -22,9 +22,7 @@ TARGET="$(sdb devices | awk -v ip="$TV_IP" 'index($1, ip ":") == 1 && $2 == "dev
 [ -n "$TARGET" ] || { echo "TV $TV_IP not connected. Is Developer mode on and the TV awake?" >&2; exit 1; }
 
 npm run package -- --profile "$PROFILE"
-# sdb cannot transfer files with non-ASCII names (the widget is named after <name>).
 WGT="build/Anime1TV.wgt"
-cp "$(ls -t build/*.wgt | grep -v -e Anime1TV.wgt -e unsigned | head -1)" "$WGT"
 OUT="$(tizen install -n "$WGT" -t "$TARGET" 2>&1 || true)"
 echo "$OUT"
 echo "$OUT" | grep -q "successfully installed" \
