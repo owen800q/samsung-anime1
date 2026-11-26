@@ -84,6 +84,8 @@ Progress saves every 15 seconds during playback and on pause, seek, end or leavi
 
 Resolve no longer waits for a redundant MP4 range probe; the real media request validates status and content type. Resolution has a 60-second overall deadline and the client stops waiting at 65 seconds, with a visible retry message. This reduces serial upstream waits but does not fix an unavailable source server.
 
+When Anime1's own server is unreachable (Cloudflare answers 502–504 or 520–524 for it), resolve repeats the page and playback-API request twice within about a second, then returns `503` with `sourceDown: true` and a message that says the source, not the TV, is at fault. A refusal such as 403 is never retried. The TV app keeps its error panel up and asks again every 30 seconds for five minutes, starting the episode by itself once the source answers.
+
 Optional browser regression: with Node 24, Playwright and its Chromium available, run `node scripts/check-ux.mjs`. Set `PLAYWRIGHT_CHROMIUM_EXECUTABLE` when using a separately installed Chromium binary. This checks two isolated browser profiles against a local SQLite test storage adapter; it does not replace a deployed Cloudflare smoke test.
 
 ### Comment checks

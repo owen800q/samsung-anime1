@@ -100,6 +100,49 @@ test('upstream denial is surfaced without retrying to bypass it', async t => {
   assert.equal(requests.filter(r => r.url.includes('/1959/')).length, 1);
 });
 
+// anime1 sits behind Cloudflare, which answers 52x while anime1's own server is unreachable.
+function mockOutage(t, id, failures, status = 521) {
+  const calls = {page:0, api:0};
+  t.mock.method(globalThis, 'fetch', async (input, init = {}) => {
+    const url = String(input);
+    if (url === 'https://anime1.me/' + id) { calls.page++; return new Response('<h2 class="entry-title">動畫 [01]</h2><video data-apireq="%7B%22id%22%3A1%7D"></video>'); }
+    assert.equal(url, 'https://v.anime1.me/api');
+    if (++calls.api <= failures) return new Response('error code: ' + status, {status});
+    const headers = new Headers({'Content-Type':'application/json'});
+    for(const key of ['e','p','h']) headers.append('Set-Cookie', key + '=v; Domain=.v.anime1.me; Path=/1959/1.mp4; Max-Age=3600');
+    return new Response(JSON.stringify({s:[{type:'video/mp4',src:'//miru.v.anime1.me/1959/1.mp4'}]}), {headers});
+  });
+  return calls;
+}
+
+test('a momentary source outage is retried and never reaches the viewer', async t => {
+  const calls = mockOutage(t, '30080', 2);
+  const response = await call('/api/resolve', post({url:'https://anime1.me/30080'}));
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).media, '/api/media?id=30080');
+  assert.deepEqual(calls, {page:1, api:3});
+});
+
+test('a lasting source outage is reported as the source being down, after a bounded retry', async t => {
+  const calls = mockOutage(t, '30081', Infinity);
+  const response = await call('/api/resolve', post({url:'https://anime1.me/30081'}));
+  assert.equal(response.status, 503);
+  const body = await response.json();
+  assert.equal(body.sourceDown, true);
+  assert.match(body.error, /取得播放資料失敗.*原站 521.*並非電視或網絡的問題/);
+  assert.deepEqual(calls, {page:1, api:3});
+});
+
+test('a refusal is not mistaken for an outage', async t => {
+  const calls = mockOutage(t, '30082', Infinity, 403);
+  const response = await call('/api/resolve', post({url:'https://anime1.me/30082'}));
+  assert.equal(response.status, 502);
+  const body = await response.json();
+  assert.equal(body.sourceDown, undefined);
+  assert.match(body.error, /403/);
+  assert.equal(calls.api, 1);
+});
+
 test('the packaged Samsung TV app (file:// origin, TV user agent) may call the API with CORS', async t => {
   const tv = {'User-Agent':'Mozilla/5.0 (SMART-TV; LINUX; Tizen 6.0) AppleWebKit/537.36 TV Safari/537.36', Origin:'null', 'Sec-Fetch-Site':'cross-site'};
   const health = await call('/api/health', {headers:tv});

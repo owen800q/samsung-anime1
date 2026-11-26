@@ -6,6 +6,10 @@ const CATALOG_SEED = {"updatedAt":"2026-09-10T16:32:55.820Z","entries":[{"id":19
 class PlaybackError extends Error {
     constructor(message, status = 502) { super(message); this.status = status; }
 }
+// Cloudflare (which fronts anime1) answers with these when anime1's own server is offline,
+// overloaded or timing out. Nothing is wrong with the viewer's TV or this deployment.
+const SOURCE_DOWN = new Set([502, 503, 504, 520, 521, 522, 523, 524]);
+const RETRY_WAITS = [250, 750];
 // The packaged Samsung TV app (tv/) loads from file:// and calls this Worker directly.
 // It is recognised by a TV user agent with a file/opaque (or absent) origin. Real TVs also
 // send cross-site fetches without any Origin; browsers always attach Origin to cross-site
@@ -114,11 +118,27 @@ async function boundedText(r, max = 2000000, signal) {
     }
     return decoder.decode(bytes);
 }
-function checkStatus(r, stage) {
-    if (!r.ok) {
-        void r.body?.cancel();
-        throw new PlaybackError(`${stage}失敗（原站 ${r.status}）。${r.status === 403 ? "原站拒絕此部署的連線，並非電視設定問題。" : "請稍後重試。"}`);
+// A source outage that clears within a moment should not reach the viewer: ask again, briefly.
+// Only an answer that came back at once is repeated, so a slow timeout is never multiplied,
+// and a refusal (403) is never retried.
+async function upstreamPatient(url, init = {}) {
+    for (let attempt = 0; ; attempt++) {
+        const started = Date.now();
+        const response = await upstream(url, init);
+        if (!SOURCE_DOWN.has(response.status) || attempt >= RETRY_WAITS.length || Date.now() - started > 3000 || init.signal?.aborted) return response;
+        void response.body?.cancel();
+        await new Promise(resolve => setTimeout(resolve, RETRY_WAITS[attempt]));
     }
+}
+function checkStatus(r, stage) {
+    if (r.ok) return;
+    void r.body?.cancel();
+    if (SOURCE_DOWN.has(r.status)) {
+        const error = new PlaybackError(`${stage}失敗：Anime1 原站伺服器暫時無法連線（原站 ${r.status}）。這並非電視或網絡的問題，原站恢復後即可播放。`, 503);
+        error.sourceDown = true;
+        throw error;
+    }
+    throw new PlaybackError(`${stage}失敗（原站 ${r.status}）。${r.status === 403 ? "原站拒絕此部署的連線，並非電視設定問題。" : "請稍後重試。"}`);
 }
 function cookieLines(headers) {
     const h = headers;
@@ -201,7 +221,7 @@ function related(html, label) {
 }
 async function loadSession(input, signal) {
     const url = episodeUrl(input);
-    const page = await upstream(url, {signal});
+    const page = await upstreamPatient(url, {signal});
     checkStatus(page, "讀取動畫頁面");
     const html = await boundedText(page, 2000000, signal);
     const match = html.match(/\bdata-apireq=["']([^"']+)["']/i);
@@ -215,7 +235,7 @@ async function loadSession(input, signal) {
     catch {
         throw new PlaybackError("原站播放資料無法解析。");
     }
-    const api = await upstream("https://v.anime1.me/api", { method: "POST", signal, headers: { "Content-Type": "application/x-www-form-urlencoded", Origin: "https://anime1.me", Referer: url }, body: new URLSearchParams({ d: data }).toString() });
+    const api = await upstreamPatient("https://v.anime1.me/api", { method: "POST", signal, headers: { "Content-Type": "application/x-www-form-urlencoded", Origin: "https://anime1.me", Referer: url }, body: new URLSearchParams({ d: data }).toString() });
     checkStatus(api, "取得播放資料");
     let payload;
     try {
@@ -395,7 +415,9 @@ async function streamMedia(request) {
     return new Response(request.method === "HEAD" ? null : response.body, { status: response.status, headers: output });
 }
 function errorResponse(error) {
-    return Response.json({ error: error instanceof PlaybackError ? error.message : "播放服務暫時無法處理，請稍後重試。" }, { status: error instanceof PlaybackError ? error.status : 500, headers: { "Cache-Control": "no-store" } });
+    const known = error instanceof PlaybackError;
+    // sourceDown tells the players that waiting, not reloading, is what brings the episode back.
+    return Response.json({ error: known ? error.message : "播放服務暫時無法處理，請稍後重試。", ...(known && error.sourceDown ? { sourceDown: true } : {}) }, { status: known ? error.status : 500, headers: { "Cache-Control": "no-store" } });
 }
 
 // Keeps the www.jevai.org website session (Supabase auth) alive for the jev-session provider.

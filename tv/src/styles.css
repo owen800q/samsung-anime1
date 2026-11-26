@@ -273,6 +273,8 @@ h1, h2, p { margin: 0; }
 .player-error { z-index: 6; width: 1100px; background: rgba(20, 27, 40, 0.97); padding: 60px; border-radius: 26px; }
 .player-error-title { font-size: 40px; font-weight: 700; }
 .player-error-text { margin-top: 16px; color: var(--text-2); }
+.player-error-wait { display: flex; align-items: center; margin-top: 24px; color: var(--text-2); }
+.player-error-wait .spinner { width: 30px; height: 30px; border-width: 4px; margin-right: 16px; }
 .player-error-actions { display: flex; margin-top: 40px; }
 .player-error-actions .btn { margin: 0 12px; }
 .player-seek-badge { position: absolute; top: 60px; left: 50%; transform: translateX(-50%); background: rgba(0, 0, 0, 0.7); padding: 14px 32px; border-radius: 14px; font-size: 34px; font-weight: 600; }
