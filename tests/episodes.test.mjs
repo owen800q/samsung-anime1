@@ -2,72 +2,60 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import worker from '../src/worker.js';
 import {listSeriesEpisodes} from '../src/adapter.js';
+import {seriesPage} from './helpers/janime.mjs';
 
 const origin = 'https://test.invalid';
 const list = (url, page = 1) => worker.fetch(new Request(origin + '/api/episodes?url=' + encodeURIComponent(url) + '&page=' + page), {});
-const entry = (id, number) => '<h2 class="entry-title"><a href="https://anime1.me/' + id + '">動畫 [' + number + ']</a></h2>';
 
-test('episode selector sorts numerically, deduplicates and exposes older pages without calling playback API', async t => {
+test('episode selector orders episodes, keeps the episode handle format and reads the series page once', async t => {
   const calls = [];
   t.mock.method(globalThis, 'fetch', async url => {
     calls.push(String(url));
-    if (url === 'https://anime1.me/123') return new Response('<a href="https://anime1.me/category/2026/test" rel="category tag">動畫 &amp; 系列</a>');
-    if (url === 'https://anime1.me/category/2026/test') return new Response(entry(123,10) + entry(122,9) + entry(122,9) + '<a class="next page-numbers" href="https://anime1.me/category/2026/test/page/2/">下一頁</a>');
-    if (url === 'https://anime1.me/category/2026/test/page/2') return new Response(entry(121,8));
-    throw new Error('Unexpected URL ' + url);
+    assert.equal(String(url), 'https://janime.cc/zh-tw/watch/123');
+    return new Response(seriesPage({id:123, title:'動畫 &amp; 系列', episodes:[{slug:10, mp4:{cht:'b'}}, {slug:9, mp4:{cht:'a'}}, {slug:9, mp4:{cht:'dup'}}, {slug:'SP', sort:99, m3u8:true}, {slug:'12.5', sort:12.5, mp4:{chs:'c'}}]}));
   });
-  const response = await list('https://anime1.me/123');
+  const response = await list('https://anime1.me/123010');
   assert.equal(response.status, 200);
   const body = await response.json();
   assert.equal(body.title, '動畫 & 系列');
-  assert.deepEqual(body.episodes.map(x => x.label), ['第 9 集','第 10 集']);
-  assert.equal(body.nextPage, 2);
-  const older = await (await list('https://anime1.me/123', 2)).json();
-  assert.equal(older.episodes[0].url, 'https://anime1.me/121');
-  assert.equal(older.nextPage, null);
+  assert.deepEqual(body.episodes.map(x => x.label), ['第 9 集','第 10 集','第 12.5 集','SP']);
+  // Whole episode numbers keep their number; the others take 900 + their place.
+  assert.deepEqual(body.episodes.map(x => x.url), ['https://anime1.me/123009','https://anime1.me/123010','https://anime1.me/123900','https://anime1.me/123901']);
+  assert.deepEqual(body.episodes.map(x => x.title), ['動畫 & 系列 [09]','動畫 & 系列 [10]','動畫 & 系列 [12.5]','動畫 & 系列 [SP]']);
+  assert.equal(body.nextPage, null);
+  assert.equal((await list('https://anime1.me/123010', 2)).status, 404);
   const before = calls.length;
-  await list('https://anime1.me/123');
-  assert.equal(calls.length, before);
-  assert.equal(calls.some(x => x.includes('v.anime1.me')), false);
+  await list('https://anime1.me/123001');
+  assert.equal(calls.length, before, 'the series page is cached');
+  assert.equal(calls.some(x => x.includes('stream.janime.cc')), false);
 });
 
 test('invalid URL and page are rejected without an upstream request', async t => {
   t.mock.method(globalThis, 'fetch', () => { throw new Error('must not fetch'); });
   assert.equal((await list('https://evil.test/123')).status, 400);
-  for (const page of [0, -1, 1.5, 101, 'bad']) assert.equal((await list('https://anime1.me/123', page)).status, 400);
+  assert.equal((await list('https://anime1.me/123')).status, 400, 'a handle below 1000 names no series');
+  for (const page of [0, -1, 1.5, 101, 'bad']) assert.equal((await list('https://anime1.me/124001', page)).status, 400);
 });
 
-test('a category redirect cannot escape the expected archive', async t => {
+test('a missing series and a source redirect are reported, never followed', async t => {
   const calls = [];
-  t.mock.method(globalThis, 'fetch', async url => {
+  t.mock.method(globalThis, 'fetch', async (url, init) => {
     calls.push(String(url));
-    if (url === 'https://anime1.me/456') return new Response('<a rel="category tag" href="https://anime1.me/category/2026/blocked">動畫</a>');
-    return new Response(null, {status:302,headers:{Location:'https://evil.test/steal'}});
+    assert.equal(init.redirect, 'manual');
+    return String(url).endsWith('/456') ? new Response('not found', {status:404}) : new Response(null, {status:302,headers:{Location:'https://evil.test/steal'}});
   });
-  const response = await list('https://anime1.me/456');
-  assert.equal(response.status, 502);
-  assert.equal(calls.length, 2);
+  const missing = await list('https://anime1.me/456001');
+  assert.equal(missing.status, 404);
+  assert.match((await missing.json()).error, /找不到這套動畫/);
+  assert.equal((await list('https://anime1.me/457001')).status, 502);
+  assert.deepEqual(calls, ['https://janime.cc/zh-tw/watch/456', 'https://janime.cc/zh-tw/watch/457']);
 });
 
-test('archive canonical trailing-slash redirect is supported', async t => {
-  t.mock.method(globalThis, 'fetch', async url => {
-    if (url === 'https://anime1.me/789') return new Response('<a rel="category tag" href="https://anime1.me/category/2026/slash">動畫</a>');
-    if (url === 'https://anime1.me/category/2026/slash') return new Response(null,{status:301,headers:{Location:'/category/2026/slash/'}});
-    assert.equal(url, 'https://anime1.me/category/2026/slash/');
-    return new Response(entry(789,1));
-  });
-  assert.equal((await list('https://anime1.me/789')).status, 200);
-});
-
-test('catalogue selection follows category and canonical pagination without a manually supplied episode URL', async t => {
-  const requests=[];
+test('catalogue selection lists a series by its ID with the catalogue title', async t => {
   t.mock.method(globalThis,'fetch',async url=>{
-    requests.push(String(url));
-    if(url==='https://anime1.me/?cat=5555')return new Response(null,{status:301,headers:{Location:'https://anime1.me/category/2026/long-series'}});
-    if(url==='https://anime1.me/category/2026/long-series/page/2/')return new Response(null,{status:301,headers:{Location:'/category/2026/long-series/page/2'}});
-    assert.equal(url,'https://anime1.me/category/2026/long-series/page/2');
-    return new Response(entry(7777,1));
+    assert.equal(String(url),'https://janime.cc/zh-tw/watch/5555');
+    return new Response(seriesPage({id:5555, title:'原站標題', episodes:[{slug:1, mp4:{cht:'a'}}], airing:false}));
   });
-  const data=await listSeriesEpisodes(5555,'長篇動畫',2);
-  assert.equal(data.title,'長篇動畫');assert.equal(data.episodes[0].url,'https://anime1.me/7777');assert.equal(requests.length,3);
+  const data=await listSeriesEpisodes(5555,'長篇動畫');
+  assert.equal(data.title,'長篇動畫');assert.equal(data.episodes[0].url,'https://anime1.me/5555001');assert.equal(data.airing,false);
 });

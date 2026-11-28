@@ -2,7 +2,7 @@
 // Usage: [JEV_API_KEY=...] [JEV_COOKIE=...] [TITLE_MATCH_LLM_API_KEY=...] node scripts/check-title-match.mjs [--since=2025] [--limit=40] [--delay=ms] [id ...]
 // Without keys the model step is skipped and each title reports whether it matched deterministically.
 import { CATALOG_SEED } from '../src/catalog-data.js';
-import { catalogueItem } from '../src/catalog.js';
+import { catalogueItem, catalogueEntry } from '../src/catalog.js';
 import { fallbackDanmaku, resolveDanmaku } from '../src/danmaku-server.js';
 import { titleMatchCached } from '../src/title-match.js';
 
@@ -14,7 +14,8 @@ const env={TITLE_MATCH_LLM_API_KEY:key||'offline',...(jev?{JEV_API_KEY:jev}:{}),
 const realFetch=globalThis.fetch;
 if(!key)globalThis.fetch=(url,init)=>String(url).includes('/v1/chat/completions')?Promise.resolve(new Response('{}',{status:401})):realFetch(url,init);
 
-const items=CATALOG_SEED.entries.filter(x=>ids.length?ids.includes(x.id):!x.bgmId&&x.year>=opt('since','2025')).slice(0,Number(opt('limit',40)));
+// janime titles all carry their Bangumi ID, so by default this now checks the danmaku matching of recent titles.
+const items=CATALOG_SEED.rows.map(row=>catalogueEntry(row)).filter(Boolean).filter(x=>ids.length?ids.includes(x.id):x.year>=opt('since','2025')).slice(0,Number(opt('limit',40)));
 let logs=[];console.info=entry=>logs.push(entry);
 const how=scope=>{
   const own=logs.filter(x=>x.scope===scope);

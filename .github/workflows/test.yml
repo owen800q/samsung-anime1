@@ -11,7 +11,8 @@ defaults:
     shell: bash
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # Playwright 1.57.0 (pinned below) cannot install Chromium on Ubuntu 26.04, which ubuntu-latest now is.
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4

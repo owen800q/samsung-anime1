@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { useRouter, useKeys } from '../router.js';
-import { CancelToken, apiUrl, call } from '../lib/http.js';
+import { CancelToken, apiUrl, call, isCancel } from '../lib/http.js';
 import { loadSeries, cachedSeries } from '../lib/series.js';
 import * as store from '../lib/store.js';
 import * as remote from '../lib/remote.js';
@@ -16,6 +16,9 @@ import { DanmakuPanel } from './DanmakuPanel.jsx';
 const RATES = [0.75, 1, 1.25, 1.5, 2];
 const OSD_TIMEOUT = 5000;
 const SEEK_COMMIT_MS = 650;
+// While the source site is down the player asks again by itself: every 30 s, for 5 minutes.
+const SOURCE_RETRY_MS = 30000;
+const SOURCE_RETRIES = 10;
 
 /** Phone-remote transport commands for the player on top (see app.jsx). */
 export const playerBus = {
@@ -40,6 +43,8 @@ export function Player({ episodeId: startId, seriesId: startSeries, seriesTitle:
   const [status, setStatus] = useState('loading'); // loading | ready | playing | paused | ended | error
   const [message, setMessage] = useState('正在準備影片…');
   const [error, setError] = useState('');
+  const [sourceDown, setSourceDown] = useState(false); // the Worker reports an outage at the source site
+  const [waiting, setWaiting] = useState(false); // still asking the source in the background
   const [time, setTime] = useState({ current: 0, duration: 0, buffered: 0 });
   const [buffering, setBuffering] = useState(false);
   const [osd, setOsd] = useState(true);
@@ -124,7 +129,7 @@ export function Player({ episodeId: startId, seriesId: startSeries, seriesTitle:
     if (danmaku.current) danmaku.current.stop();
     saveProgress();
     armed.current = false; pendingResume.current = null;
-    setPlayback(null); setStatus('loading'); setError(''); setMessage('正在準備影片…'); setBuffering(false);
+    setPlayback(null); setStatus('loading'); setError(''); setSourceDown(false); setMessage('正在準備影片…'); setBuffering(false);
     setTime({ current: 0, duration: 0, buffered: 0 }); setSeekTarget(null); seekRef.current = null;
     showOsd(true);
     try { v.pause(); v.removeAttribute('src'); v.load(); } catch (_) {}
@@ -132,7 +137,7 @@ export function Player({ episodeId: startId, seriesId: startSeries, seriesTitle:
     const sync = store.refresh();
     call('/api/resolve', { body: { url: 'https://anime1.me/' + episodeId, refresh: reload.refresh }, timeout: 65000, cancel, timeoutMessage: '取得播放資料逾時，請按「重新載入」重試。' }).then(async r => {
       if (!r.json) throw new Error('播放服務未能回應，請稍後重試。');
-      if (!r.ok) throw new Error(r.data.error || '未能準備影片。');
+      if (!r.ok) throw Object.assign(new Error(r.data.error || '未能準備影片。'), { sourceDown: r.data.sourceDown === true });
       const data = r.data;
       if (!/^\/api\/media\?id=\d{1,10}$/.test(data.media) || typeof data.title !== 'string') throw new Error('播放資料不完整。');
       await sync;
@@ -159,10 +164,32 @@ export function Player({ episodeId: startId, seriesId: startSeries, seriesTitle:
       if (cancel.cancelled) return;
       setStatus('error');
       setError(errorMessage(e, '連線失敗，請重試。'));
+      setSourceDown(!!e.sourceDown);
       showOsd(true);
     }).then(() => clearTimeout(slow));
     return () => { cancel.cancel(); clearTimeout(slow); };
   }, [episodeId, reload.n]);
+
+  // ---------- wait for the source site to come back ----------
+  // An outage at anime1 clears by itself. Ask again quietly behind the error panel and start
+  // the episode once the source answers; any other answer is shown through a normal reload.
+  useEffect(() => {
+    if (status !== 'error' || !sourceDown) { setWaiting(false); return undefined; }
+    const cancel = new CancelToken();
+    let tries = 0, timer = 0;
+    const again = () => { if (++tries < SOURCE_RETRIES) timer = setTimeout(probe, SOURCE_RETRY_MS); else setWaiting(false); };
+    function probe() {
+      call('/api/resolve', { body: { url: 'https://anime1.me/' + episodeId, refresh: true }, timeout: 65000, cancel }).then(r => {
+        if (cancel.cancelled) return;
+        if (!r.json || r.data.sourceDown) { again(); return; }
+        autoplayNext.current = true;
+        setReload(x => ({ n: x.n + 1, refresh: false }));
+      }).catch(e => { if (!isCancel(e)) again(); });
+    }
+    setWaiting(true);
+    timer = setTimeout(probe, SOURCE_RETRY_MS);
+    return () => { cancel.cancel(); clearTimeout(timer); };
+  }, [status, sourceDown, episodeId, reload.n]);
 
   // ---------- video events, danmaku, remote, lifecycle ----------
   useEffect(() => {
@@ -385,6 +412,7 @@ export function Player({ episodeId: startId, seriesId: startSeries, seriesTitle:
         <div class="player-error" data-focus-scope>
           <div class="player-error-title">暫時未能載入</div>
           <div class="player-error-text">{error}</div>
+          {waiting && <div class="player-error-wait"><span class="spinner" />正在等候原站恢復，恢復後會自動播放。</div>}
           <div class="player-error-actions">
             <button type="button" tabIndex={-1} class="btn btn-primary focusable" data-autofocus onClick={reloadEpisode}><Icon name="refresh" />重新載入</button>
             {next && <button type="button" tabIndex={-1} class="btn focusable" onClick={() => go(next.id)}>播放下一集</button>}

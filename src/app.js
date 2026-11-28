@@ -144,7 +144,7 @@
       playback = data; video.src = data.media; video.load(); $('empty').hidden = true;
       markEpisode();
       window.TVDanmaku?.open({episodeId:episodeId(data.url),title:data.title,seriesTitle:selectedTitle||data.title.replace(/\s*\[[^\]]+\]\s*$/,''),seriesId:selectedSeries});
-      $('title').textContent = data.title; $('source').href = data.url; $('source').hidden = false;
+      $('title').textContent = data.title; $('source').href = data.sourceUrl || data.url; $('source').hidden = false;
       $('episode-nav').hidden = !(data.previous || data.next); status('影片已準備好，請按播放');
       $('play').disabled = false; $('play').focus(); report();
       return { state: 'ready', title: data.title, url: data.url };
