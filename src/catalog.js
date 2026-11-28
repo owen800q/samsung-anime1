@@ -3,6 +3,10 @@ import { CATALOG_SEED } from './catalog-data.js';
 import { foldChinese } from './zh-fold.js';
 import { PlaybackError, plainText, listSeriesEpisodes } from './adapter.js';
 
+// The catalogue comes from janime.cc's own search index. Its series IDs are Bangumi subject IDs,
+// so every title is already mapped and no title matching is needed.
+export const CATALOGUE_URL = 'https://janime.cc/search-index.zh-tw.min.json';
+
 const CATALOG_UA = 'SamsungAnime1/1.1 (https://github.com/owen800q/Samsung-anime1)';
 const catalogMemory = new Map();
 const catalogPending = new Map();
@@ -21,7 +25,6 @@ export function useCatalogueStore(env) {
     put: async entry => { const r = await call({method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(entry)}); await r.body?.cancel(); },
   };
 }
-const seedById = new Map(CATALOG_SEED.entries.map(item => [item.id,item]));
 const normalTitle = s => String(s).normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]/gu,'');
 export const GENRES = ['奇幻','戀愛','搞笑','日常','科幻','冒險','戰鬥','懸疑','運動','音樂','治癒','機戰'];
 const genreTags = ['奇幻','恋爱','搞笑','日常','科幻','冒险','战斗','悬疑','运动','音乐','治愈','机战'];
@@ -53,21 +56,48 @@ async function catalogueJSON(url, init = {}, ttl = 3600) {
   })().finally(()=>catalogPending.delete(key));
   catalogPending.set(key,promise);return promise;
 }
+const INDEX_SEASONS={winter:'冬',spring:'春',summer:'夏',autumn:'秋'};
+const SOURCE_FORMATS=['tv','movie','ova','web'];
+// janime's index has no airing state. A TV or web series first aired within this window is listed
+// as 連載中; its episode list (the series page) shows the real state.
+const AIRING_DAYS=100;
+// Index row: [id, Traditional title, Simplified title, year, first air date, format, season, genres, score].
+export function catalogueEntry(row, now = Date.now()) {
+  if(!Array.isArray(row)||!Number.isSafeInteger(row[0])||row[0]<1||row[0]>9999999||typeof row[1]!=='string')return null;
+  const genres=Array.isArray(row[7])?row[7]:[];
+  // Anime1 never carried adult titles; keep the catalogue that way.
+  if(genres.includes('裏番'))return null;
+  const title=plainText(row[1]);if(!title)return null;
+  const format=SOURCE_FORMATS.includes(row[5])?row[5]:'unknown';
+  const date=/^\d{4}-\d{2}-\d{2}$/.test(row[4]||'')?row[4]:'';
+  const year=/^\d{4}$/.test(String(row[3]??''))?String(row[3]):date.slice(0,4);
+  const aired=date?Date.parse(date):NaN;
+  const airing=(format==='tv'||format==='web')&&Number.isFinite(aired)&&now-aired<AIRING_DAYS*86400000;
+  const simplified=typeof row[2]==='string'?plainText(row[2]):'';
+  return {id:row[0],title,episodes:format==='movie'?'劇場版':format==='ova'?'OVA':airing?'連載中':'已完結',year,season:INDEX_SEASONS[row[6]]||'',bgmId:row[0],format,aliases:[...new Set([title,simplified].filter(Boolean))]};
+}
+function catalogueItems(rows) {
+  const seen=new Set();const now=Date.now();
+  return rows.map(row=>catalogueEntry(row,now)).filter(item=>item&&!seen.has(item.id)&&seen.add(item.id));
+}
 export async function catalogueIndex() {
   if(catalogueSnapshot && catalogueSnapshot.expires > Date.now())return catalogueSnapshot.value;
   try {
-    const rows=await catalogueJSON('https://anime1.me/animelist.json',{},300);
+    const rows=await catalogueJSON(CATALOGUE_URL,{},300);
     if(!Array.isArray(rows)||rows.length<10)throw new Error('Unexpected source catalogue');
-    const stored=await matchStore?.list().catch(()=>null)||{};
-    const items=rows.filter(r=>Array.isArray(r)&&Number.isInteger(r[0])&&r[0]>0&&typeof r[1]==='string').map(r=>{
-      const seed=seedById.get(r[0]);let match=seed&&normalTitle(seed.title)===normalTitle(r[1])?seed:null;
-      // A stored entry applies only while the source still lists the same title and year.
-      const found=stored[r[0]],current=found&&found.title===plainText(r[1])&&found.year===String(r[3]||'');
-      if(!match&&current&&found.bgmId)match=found;
-      return {...(!match&&current&&found.v===MATCH_VERSION&&found.expires>Date.now()?{bgmMissing:true}:{}),id:r[0],title:plainText(r[1]),episodes:plainText(String(r[2]||'')),year:String(r[3]||''),season:String(r[4]||''),bgmId:match?.bgmId||null,format:String(r[2]).includes('劇場版')?'movie':match?.format||(/^(OVA|SP)/.test(String(r[2]))?'ova':'unknown'),aliases:match?.aliases||[]};
-    });
+    const items=catalogueItems(rows);
+    if(items.length<10)throw new Error('Unexpected source catalogue');
     const value={items,stale:false};catalogueSnapshot={value,expires:Date.now()+300000};return value;
-  } catch {const value={items:CATALOG_SEED.entries,stale:true};catalogueSnapshot={value,expires:Date.now()+30000};return value;}
+  } catch {const value={items:catalogueItems(CATALOG_SEED.rows),stale:true};catalogueSnapshot={value,expires:Date.now()+30000};return value;}
+}
+// /api/search: titles from the catalogue, expanded into their episodes (at most six series).
+export async function searchEpisodes(query) {
+  const q=String(query||'').trim();
+  if(!q||q.length>80)throw new PlaybackError('請輸入 1 至 80 字的動畫名稱。',400);
+  const {items}=await catalogueIndex();const key=normalTitle(q);
+  const matches=items.filter(x=>[x.title,...x.aliases].some(t=>normalTitle(t).includes(key))).slice(0,6);
+  const lists=await Promise.all(matches.map(x=>listSeriesEpisodes(x.id,x.title).catch(()=>null)));
+  return {episodes:lists.flatMap(list=>list?list.episodes.map(e=>({url:e.url,title:e.title})):[]).slice(0,30)};
 }
 function publicItem(item) {const {aliases,...rest}=item;return rest;}
 function metadata(subject, sourceId) {

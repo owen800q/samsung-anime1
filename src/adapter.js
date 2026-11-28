@@ -1,5 +1,5 @@
-// Public-page adapter and credential-preserving stream. No upstream scripts execute.
-// Credentials stay in bounded, temporary server memory. No account or secret is needed.
+// Source adapter for janime.cc (簡愛動漫): reads its public series pages and streams their MP4s.
+// No upstream scripts execute, and no account or secret is needed.
 export class PlaybackError extends Error {
     constructor(message, status = 502) { super(message); this.status = status; }
 }
@@ -24,6 +24,24 @@ export function allowedCaller(request) {
 }
 const decoder = new TextDecoder();
 const UA = "Mozilla/5.0 Anime1TV/1.0";
+// The source moved from anime1.me to janime.cc. Every client (TV app, website, phone remote,
+// saved history) names an episode by the handle https://anime1.me/<n>, so that handle stays:
+// n = janime series ID × 1000 + episode key. The key is the episode number for whole numbers
+// 0–899, else 900 + the episode's place among the other episodes (SP, 12.5, …).
+// janime series IDs are Bangumi subject IDs.
+export const SOURCE = "https://janime.cc";
+const PER_SERIES = 1000;
+const MAX_SERIES = 9999999;
+export function episodeHandle(seriesId, key) {
+    return "https://anime1.me/" + (Number(seriesId) * PER_SERIES + key);
+}
+export function episodeParts(handle) {
+    const n = Number(new URL(episodeUrl(handle)).pathname.slice(1));
+    const series = Math.floor(n / PER_SERIES);
+    if (series < 1 || series > MAX_SERIES)
+        throw new PlaybackError("這不是有效的單集網址，請從動畫目錄重新選擇。", 400);
+    return { series, key: n % PER_SERIES };
+}
 export function episodeUrl(input) {
     if (typeof input !== "string" || input.length > 200)
         throw new PlaybackError("請輸入 Anime1 單集網址。", 400);
@@ -34,23 +52,32 @@ export function episodeUrl(input) {
     catch {
         throw new PlaybackError("網址格式不正確，請貼上 https://anime1.me/ 開頭的單集網址。", 400);
     }
+    // A janime episode page pasted into the player maps to the same handle.
+    if (u.protocol === "https:" && u.hostname === "janime.cc" && !u.port && !u.username && !u.password) {
+        const series = u.pathname.match(/^\/(?:zh-tw\/|zh-cn\/)?watch\/(\d{1,7})\/?$/)?.[1];
+        const ep = u.searchParams.get("ep");
+        if (series && Number(series) >= 1 && /^\d{1,3}$/.test(ep || "") && Number(ep) < 900)
+            return episodeHandle(series, Number(ep));
+        throw new PlaybackError("請使用含集數的簡愛動漫單集網址（…/watch/編號?ep=集數）。", 400);
+    }
     if (u.protocol !== "https:" || u.hostname !== "anime1.me" || u.port || u.username || u.password)
         throw new PlaybackError("只支援 https://anime1.me/ 開頭的單集頁面。", 400);
     if (u.pathname === "/" && /^\d{1,10}$/.test(u.searchParams.get("p") || ""))
-        return "https://anime1.me/" + u.searchParams.get("p");
+        return "https://anime1.me/" + Number(u.searchParams.get("p"));
     if (!/^\/\d{1,10}\/?$/.test(u.pathname))
         throw new PlaybackError("請使用單集網址，而非首頁或分類頁面。", 400);
-    return "https://anime1.me/" + u.pathname.split("/")[1];
+    return "https://anime1.me/" + Number(u.pathname.split("/")[1]);
 }
+// Only janime's own MP4 hosts (stream.janime.cc and siblings) are streamed.
 export function mediaUrl(input) {
     let u;
     try {
-        u = new URL(input, "https://anime1.me/");
+        u = new URL(input);
     }
     catch {
         throw new PlaybackError("原站回傳的影片網址無效。");
     }
-    if (u.protocol !== "https:" || !/^(?:[a-z0-9-]+\.)?v\.anime1\.me$/.test(u.hostname) || u.port || u.username || u.password || !/^\/[a-zA-Z0-9_-]+\/[a-zA-Z0-9_.-]+\.mp4$/.test(u.pathname) || u.search || u.hash)
+    if (u.protocol !== "https:" || !/^[a-z0-9-]+\.janime\.cc$/.test(u.hostname) || u.port || u.username || u.password || !/^\/[A-Za-z0-9_\-/.]+$/.test(u.pathname) || u.pathname.includes("..") || u.search || u.hash)
         throw new PlaybackError("原站影片格式或伺服器已變更，暫未支援。");
     return u.href;
 }
@@ -137,57 +164,154 @@ function checkStatus(r, stage) {
     }
     throw new PlaybackError(`${stage}失敗（原站 ${r.status}）。${r.status === 403 ? "原站拒絕此部署的連線，並非電視設定問題。" : "請稍後重試。"}`);
 }
-function cookieLines(headers) {
-    const h = headers;
-    if (h.getSetCookie)
-        return h.getSetCookie();
-    if (h.getAll)
-        return h.getAll("Set-Cookie");
-    return (headers.get("Set-Cookie") || "").split(/,(?=\s*[^\s;,=]+=)/);
+// ---------- janime series pages ----------
+// A series page (/zh-tw/watch/<id>) server-renders its player with every episode and its
+// sources as Astro island props: JSON in an HTML attribute, each value wrapped as [type, value].
+const ENTITIES = { amp: "&", quot: '"', apos: "'", lt: "<", gt: ">", nbsp: " " };
+function htmlEntities(text) {
+    return text.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (all, entity) => {
+        if (entity[0] !== "#")
+            return ENTITIES[entity.toLowerCase()] ?? all;
+        const code = entity[1]?.toLowerCase() === "x" ? parseInt(entity.slice(2), 16) : parseInt(entity.slice(1), 10);
+        return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : "";
+    });
 }
-function playbackCookies(headers, source) {
-    const u = new URL(source);
-    const values = [];
-    let ttl = 3600;
-    for (const line of cookieLines(headers)) {
-        const parts = line.split(";").map(x => x.trim());
-        const pair = parts[0];
-        if (!/^[eph]=[^;\r\n]+$/.test(pair))
-            continue;
+function astroValue(wrapped, depth) {
+    if (!Array.isArray(wrapped) || depth > 32)
+        return null;
+    const [type, value] = wrapped;
+    if (type === 1)
+        return Array.isArray(value) ? value.map(x => astroValue(x, depth + 1)) : [];
+    if (type === 3)
+        return String(value);
+    if (type !== 0)
+        return null;
+    return value && typeof value === "object" && !Array.isArray(value) ? astroProps(value, depth + 1) : value;
+}
+function astroProps(object, depth = 0) {
+    const out = {};
+    for (const [key, value] of Object.entries(object))
+        if (key !== "__proto__")
+            out[key] = astroValue(value, depth);
+    return out;
+}
+export function playerProps(html) {
+    for (const match of html.matchAll(/<astro-island\b([^>]*)>/g)) {
         const attributes = {};
-        for (const part of parts.slice(1)) {
-            const at = part.indexOf("=");
-            attributes[(at < 0 ? part : part.slice(0, at)).toLowerCase()] = at < 0 ? "" : part.slice(at + 1);
-        }
-        const domain = attributes.domain?.replace(/^\./, "").toLowerCase();
-        if (domain !== "v.anime1.me" || !(u.hostname === domain || u.hostname.endsWith("." + domain)) || attributes.path !== u.pathname)
+        for (const a of match[1].matchAll(/\s([a-z-]+)="([^"]*)"/g))
+            attributes[a[1]] = a[2];
+        if (!/\/EpisodePlayer\.[\w-]+\.js$/.test(attributes["component-url"] || ""))
             continue;
-        if (attributes["max-age"] && Number.isFinite(Number(attributes["max-age"])))
-            ttl = Math.min(ttl, Number(attributes["max-age"]));
-        if (attributes.expires && Number.isFinite(Date.parse(attributes.expires)))
-            ttl = Math.min(ttl, (Date.parse(attributes.expires) - Date.now()) / 1000);
-        values.push(pair);
+        try {
+            const props = astroProps(JSON.parse(htmlEntities(attributes.props || "{}")));
+            if (Array.isArray(props.episodes))
+                return props;
+        }
+        catch { }
     }
-    if (values.length !== 3 || new Set(values.map(x => x[0])).size !== 3 || ttl < 60)
-        throw new PlaybackError("原站未提供有效播放憑證，請重新載入。");
-    return { cookie: values.join("; "), exp: Date.now() + Math.floor(ttl - 30) * 1000 };
+    throw new PlaybackError("原站播放資料無法解析。");
 }
+// Traditional-Chinese subtitles first (as Anime1 had), then Simplified, then anything else.
+function playableMp4(episode) {
+    const candidates = [];
+    for (const group of Object.values(episode.sources && typeof episode.sources === "object" ? episode.sources : {}))
+        if (Array.isArray(group))
+            candidates.push(...group);
+    candidates.push({ url: episode.url, type: episode.type, lang: "" });
+    const rank = lang => lang === "cht" ? 0 : lang === "chs" ? 1 : 2;
+    const usable = candidates.filter(s => s && s.type === "mp4" && typeof s.url === "string").map(s => {
+        try {
+            return { url: mediaUrl(s.url), rank: rank(s.lang) };
+        }
+        catch {
+            return null;
+        }
+    }).filter(Boolean).sort((a, b) => a.rank - b.rank);
+    return usable[0]?.url || null;
+}
+function labelFor(slug) {
+    if (/^\d+$/.test(slug))
+        return { tag: String(Number(slug)).padStart(2, "0"), label: "第 " + Number(slug) + " 集" };
+    if (/^\d+\.\d+$/.test(slug))
+        return { tag: slug, label: "第 " + Number(slug) + " 集" };
+    return { tag: slug, label: slug };
+}
+export function parseSeriesPage(html, seriesId) {
+    const props = playerProps(html);
+    if (props.animeId != null && String(props.animeId) !== String(seriesId))
+        throw new PlaybackError("原站回傳了另一套動畫的資料。");
+    const title = plainText(String(props.animeTitle || "")).slice(0, 200) || "Anime1 動畫";
+    const ordered = props.episodes.filter(e => e && typeof e === "object" && /^[\w.\-]{1,20}$/.test(String(e.slug ?? ""))).map((episode, index) => ({ episode, index, sort: Number(episode.sort) }))
+        .sort((a, b) => (Number.isFinite(a.sort) ? a.sort : 1e9) - (Number.isFinite(b.sort) ? b.sort : 1e9) || a.index - b.index);
+    const taken = new Set();
+    let other = 900;
+    const episodes = [];
+    for (const { episode } of ordered) {
+        const slug = String(episode.slug);
+        const key = /^\d{1,3}$/.test(slug) && Number(slug) < 900 ? Number(slug) : other < PER_SERIES ? other++ : -1;
+        if (key < 0 || taken.has(key))
+            continue;
+        taken.add(key);
+        const { tag, label } = labelFor(slug);
+        const media = playableMp4(episode);
+        const groups = episode.sources && typeof episode.sources === "object" ? Object.values(episode.sources).flat() : [];
+        episodes.push({
+            key, slug, label, url: episodeHandle(seriesId, key), title: title + " [" + tag + "]", media,
+            mainlandOnly: !media && groups.some(s => s && s.type === "m3u8"),
+            sourceUrl: SOURCE + "/zh-tw/watch/" + seriesId + "?ep=" + encodeURIComponent(slug),
+        });
+    }
+    if (!episodes.length)
+        throw new PlaybackError("原站暫時未有這套動畫的集數。", 422);
+    const pageTitle = html.match(/<title>([^<]*)<\/title>/i)?.[1] || "";
+    return { id: Number(seriesId), title, episodes, airing: pageTitle.includes("連載中") };
+}
+const seriesPages = new Map();
+const seriesPending = new Map();
+const SERIES_TTL = 5 * 60 * 1000;
+export async function loadSeriesPage(seriesId, { refresh = false, signal } = {}) {
+    const id = Number(seriesId);
+    if (!Number.isInteger(id) || id < 1 || id > MAX_SERIES)
+        throw new PlaybackError("動畫編號無效。", 400);
+    const cached = seriesPages.get(id);
+    if (!refresh && cached && cached.expires > Date.now())
+        return cached.data;
+    if (seriesPending.has(id))
+        return seriesPending.get(id);
+    const promise = (async () => {
+        const page = await upstreamPatient(SOURCE + "/zh-tw/watch/" + id, { signal });
+        if (page.status === 404) {
+            void page.body?.cancel();
+            throw new PlaybackError("原站找不到這套動畫，可能已下架。", 404);
+        }
+        checkStatus(page, "讀取動畫頁面");
+        const data = parseSeriesPage(await boundedText(page, 4000000, signal), id);
+        seriesPages.delete(id);
+        while (seriesPages.size >= 32)
+            seriesPages.delete(seriesPages.keys().next().value);
+        seriesPages.set(id, { data, expires: Date.now() + SERIES_TTL });
+        return data;
+    })().finally(() => seriesPending.delete(id));
+    seriesPending.set(id, promise);
+    return promise;
+}
+// ---------- playback sessions ----------
 const sessions = new Map();
 const pending = new Map();
 const MAX_SESSIONS = 32;
 async function getSession(input, refresh = false) {
     const url = episodeUrl(input);
     const cached = sessions.get(url);
-    if (!refresh && cached && cached.exp > Date.now() && cached.cachedAt + 20 * 60 * 1000 > Date.now()) return cached;
+    if (!refresh && cached && cached.exp > Date.now()) return cached;
     if (pending.has(url)) return pending.get(url);
     if (pending.size >= 16) throw new PlaybackError("播放服務暫時繁忙，請稍後重試。", 429);
     const controller = new AbortController();
     let timer;
     const deadline = new Promise((_, reject) => { timer = setTimeout(() => { controller.abort(); reject(new PlaybackError("取得播放資料逾時，請重新載入。", 504)); }, 60000); });
-    const promise = Promise.race([loadSession(url, controller.signal), deadline]).then(session => {
+    const promise = Promise.race([loadSession(url, controller.signal, refresh), deadline]).then(session => {
         sessions.delete(url);
         while (sessions.size >= MAX_SESSIONS) sessions.delete(sessions.keys().next().value);
-        sessions.set(url, { ...session, cachedAt: Date.now() });
+        sessions.set(url, session);
         return session;
     }).finally(() => { clearTimeout(timer); pending.delete(url); });
     pending.set(url, promise);
@@ -195,189 +319,32 @@ async function getSession(input, refresh = false) {
 }
 export async function resolveEpisode(input, refresh = false) {
     const session = await getSession(input, refresh);
-    return { url: session.pageUrl, title: session.title, seriesId: session.seriesId, media: "/api/media?id=" + new URL(session.pageUrl).pathname.slice(1), previous: session.previous, next: session.next };
+    return { url: session.pageUrl, title: session.title, seriesId: session.seriesId, media: "/api/media?id=" + new URL(session.pageUrl).pathname.slice(1), previous: session.previous, next: session.next, sourceUrl: session.sourceUrl };
 }
-function seriesIdFromHTML(html) {
-    for(const a of html.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)){
-        if(plainText(a[2])!=='全集連結')continue;
-        try{const u=new URL(plainText(a[1]),'https://anime1.me');const id=u.searchParams.get('cat');if(u.origin==='https://anime1.me'&&/^\d{1,10}$/.test(id||''))return id;}catch{}
-    }
-    return null;
+async function loadSession(url, signal, refresh) {
+    const { series, key } = episodeParts(url);
+    const data = await loadSeriesPage(series, { refresh, signal });
+    const at = data.episodes.findIndex(e => e.key === key);
+    if (at < 0)
+        throw new PlaybackError("原站沒有這一集，可能已下架。請從集數列表重新選擇。", 404);
+    const episode = data.episodes[at];
+    if (!episode.media)
+        throw new PlaybackError(episode.mainlandOnly ? "原站這一集只有中國大陸線路，海外暫時未能播放。可試其他集數，或稍後再試。" : "原站暫未提供這一集的影片，請稍後重新載入。", 422);
+    const near = e => e ? { title: e.title, url: e.url } : null;
+    return { url: episode.media, pageUrl: url, sourceUrl: episode.sourceUrl, exp: Date.now() + 30 * 60 * 1000, seriesId: String(series), title: episode.title, previous: near(data.episodes[at - 1]), next: near(data.episodes[at + 1]) };
 }
-function related(html, label) {
-    for (const match of html.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
-        const title = plainText(match[2]);
-        if (title === label) {
-            try {
-                return { title, url: episodeUrl(new URL(plainText(match[1]), "https://anime1.me").href) };
-            }
-            catch { }
-        }
-    }
-    return null;
-}
-async function loadSession(input, signal) {
-    const url = episodeUrl(input);
-    const page = await upstreamPatient(url, {signal});
-    checkStatus(page, "讀取動畫頁面");
-    const html = await boundedText(page, 2000000, signal);
-    const match = html.match(/\bdata-apireq=["']([^"']+)["']/i);
-    if (!match)
-        throw new PlaybackError("此頁沒有可播放的單集，或原站要求額外驗證。請使用單集網址。", 422);
-    let data;
-    try {
-        data = decodeURIComponent(match[1]);
-        JSON.parse(data);
-    }
-    catch {
-        throw new PlaybackError("原站播放資料無法解析。");
-    }
-    const api = await upstreamPatient("https://v.anime1.me/api", { method: "POST", signal, headers: { "Content-Type": "application/x-www-form-urlencoded", Origin: "https://anime1.me", Referer: url }, body: new URLSearchParams({ d: data }).toString() });
-    checkStatus(api, "取得播放資料");
-    let payload;
-    try {
-        payload = JSON.parse(await boundedText(api, 32768, signal));
-    }
-    catch {
-        throw new PlaybackError("原站播放服務回傳了無法讀取的資料。");
-    }
-    const source = payload.s?.find(x => x.type === "video/mp4" || x.src?.endsWith(".mp4"));
-    if (!source)
-        throw new PlaybackError("原站暫未提供影片，請稍後重新載入。");
-    const target = mediaUrl(source.src);
-    const credentials = playbackCookies(api.headers, target);
-    // Validate MP4 on the actual media request; an extra range probe delays resolve.
-    const titleMatch = html.match(/<h[1-3]\b[^>]*class=["'][^"']*entry-title[^"']*["'][^>]*>([\s\S]*?)<\/h[1-3]>/i);
-    return { url: target, pageUrl: url, ...credentials, seriesId: seriesIdFromHTML(html), title: titleMatch ? plainText(titleMatch[1]) : "Anime1 動畫", previous: related(html, "上一集"), next: related(html, "下一集") };
-}
-export async function searchEpisodes(query) {
-    if (!query.trim() || query.length > 80)
-        throw new PlaybackError("請輸入 1 至 80 字的動畫名稱。", 400);
-    const response = await upstream("https://anime1.me/?s=" + encodeURIComponent(query.trim()));
-    checkStatus(response, "搜尋動畫");
-    const html = await boundedText(response);
-    const episodes = [];
-    const seen = new Set();
-    for (const match of html.matchAll(/<h2\b[^>]*class=["'][^"']*entry-title[^"']*["'][^>]*>\s*<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
-        try {
-            const url = episodeUrl(plainText(match[1]));
-            if (!seen.has(url)) {
-                episodes.push({ url, title: plainText(match[2]) });
-                seen.add(url);
-            }
-        }
-        catch { }
-    }
-    return { episodes: episodes.slice(0, 30) };
-}
-// Episode discovery is independent of the playback session: a listing failure
-// must never stop a video that is already playing.
-const episodeLists = new Map();
-function categoryLink(html) {
-    for (const match of html.matchAll(/<a\b([^>]+)>([\s\S]*?)<\/a>/gi)) {
-        const rel = match[1].match(/\brel=["']([^"']+)["']/i)?.[1] || '';
-        const href = match[1].match(/\bhref=["']([^"']+)["']/i)?.[1];
-        if (!rel.split(/\s+/).includes('category') || !href) continue;
-        try {
-            const url = new URL(plainText(href), 'https://anime1.me');
-            if (url.origin === 'https://anime1.me' && !url.username && !url.password && !url.search && !url.hash && /^\/category\/[^/]+\/[^/]+\/?$/.test(url.pathname)) return { url: url.href.replace(/\/$/, ''), title: plainText(match[2]) };
-        } catch {}
-    }
-    throw new PlaybackError('原站未提供這套動畫的集數列表。', 422);
-}
-export async function listEpisodes(input, page = 1) {
-    const url = episodeUrl(input);
-    if (!Number.isInteger(page) || page < 1 || page > 100) throw new PlaybackError('集數列表頁碼無效。', 400);
-    const key = url + ':' + page;
-    const cached = episodeLists.get(key);
-    if (cached && cached.expires > Date.now()) return cached.data;
-    const response = await upstream(url);
-    checkStatus(response, '讀取動畫分類');
-    const series = categoryLink(await boundedText(response));
-    const target = series.url + (page > 1 ? '/page/' + page : '');
-    let archive = await upstream(target);
-    // WordPress can normalize escaping or a trailing slash. Follow only the
-    // same category/page, never a different host or arbitrary redirect.
-    for (let count = 0; [301,302,307,308].includes(archive.status) && count < 2; count++) {
-        const location = archive.headers.get('location');
-        await archive.body?.cancel();
-        const next = new URL(location || '', target);
-        if (!location || next.origin !== 'https://anime1.me' || next.username || next.password || next.search || next.hash || decodeURIComponent(next.pathname).replace(/\/$/, '') !== decodeURIComponent(new URL(target).pathname)) throw new PlaybackError('原站集數列表網址已變更。');
-        archive = await upstream(next.href);
-    }
-    checkStatus(archive, '讀取集數列表');
-    const html = await boundedText(archive);
-    const data = parseEpisodeArchive(html, series, page);
-    while (episodeLists.size >= 32) episodeLists.delete(episodeLists.keys().next().value);
-    episodeLists.set(key, { data, expires: Date.now() + 5 * 60 * 1000 });
-    return data;
-}
-function parseEpisodeArchive(html, series, page) {
-    const target = series.url;
-    const episodes = []; const seen = new Set();
-    for (const match of html.matchAll(/<h2\b[^>]*class=["'][^"']*entry-title[^"']*["'][^>]*>\s*<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
-        try {
-            const episode = episodeUrl(new URL(plainText(match[1]), 'https://anime1.me').href);
-            if (seen.has(episode)) continue;
-            const title = plainText(match[2]);
-            const number = title.match(/[\[［]([^\]］]+)[\]］]\s*$/)?.[1];
-            episodes.push({ url: episode, title, label: number ? (/^\d+(?:\.\d+)?$/.test(number) ? '第 ' + Number(number) + ' 集' : number) : title });
-            seen.add(episode);
-        } catch {}
-    }
-    if (!episodes.length) throw new PlaybackError('暫時讀不到集數列表，請稍後重試。', 422);
-    episodes.sort((a,b) => a.title.localeCompare(b.title, 'zh-Hant', {numeric:true}));
-    let nextPage = null;
-    const base = decodeURIComponent(new URL(series.url).pathname);
-    for (const match of html.matchAll(/<a\b[^>]*href=["']([^"']+)["']/gi)) {
-        try {
-            const link = new URL(plainText(match[1]), target);
-            if (link.origin !== 'https://anime1.me') continue;
-            const path = decodeURIComponent(link.pathname).replace(/\/$/, '');
-            if (path === base + '/page/' + (page + 1) || path === base && link.searchParams.get('paged') === String(page + 1)) nextPage = page + 1;
-        } catch {}
-    }
-    return { title: series.title, episodes, nextPage };
-}
+// ---------- episode lists ----------
+// janime lists a whole series on one page, so there is never a second page.
 export async function listSeriesEpisodes(id, title, page = 1) {
     if (!/^\d{1,10}$/.test(String(id)) || !Number.isInteger(page) || page < 1 || page > 100) throw new PlaybackError('動畫編號或頁碼無效。', 400);
-    const key = 'series:' + id + ':' + page;
-    const cached = episodeLists.get(key);
-    if (cached && cached.expires > Date.now()) return cached.data;
-    let response = await upstream('https://anime1.me/?cat=' + id);
-    let target = '';
-    if ([301,302,307,308].includes(response.status)) {
-        const next = new URL(response.headers.get('location') || '', 'https://anime1.me');
-        await response.body?.cancel();
-        if (next.origin !== 'https://anime1.me' || next.username || next.password || next.search || next.hash || !/^\/category\/[^/]+\/[^/]+\/?$/.test(next.pathname)) throw new PlaybackError('動畫分類網址無效。');
-        target = next.href.replace(/\/$/, '');
-        response = await upstream(target + (page > 1 ? '/page/' + page + '/' : ''));
-    } else {
-        checkStatus(response, '讀取動畫集數');
-        const html = await boundedText(response);
-        const series = categoryLink(html);
-        target = series.url;
-        if (page === 1) {
-            const data = parseEpisodeArchive(html, {url:target,title}, page);
-            while (episodeLists.size >= 32) episodeLists.delete(episodeLists.keys().next().value);
-            episodeLists.set(key,{data,expires:Date.now()+5*60*1000});
-            return data;
-        }
-        response = await upstream(target + '/page/' + page + '/');
-    }
-    for (let count = 0; [301,302,307,308].includes(response.status) && count < 2; count++) {
-        const location = response.headers.get('location');
-        await response.body?.cancel();
-        const next = new URL(location || '', target);
-        const expected = new URL(target + (page > 1 ? '/page/' + page : '')).pathname;
-        if (!location || next.origin !== 'https://anime1.me' || next.username || next.password || next.search || next.hash || decodeURIComponent(next.pathname).replace(/\/$/, '') !== decodeURIComponent(expected)) throw new PlaybackError('原站集數列表網址已變更。');
-        response = await upstream(next.href);
-    }
-    checkStatus(response, '讀取動畫集數');
-    const data = parseEpisodeArchive(await boundedText(response), {url:target,title}, page);
-    while (episodeLists.size >= 32) episodeLists.delete(episodeLists.keys().next().value);
-    episodeLists.set(key,{data,expires:Date.now()+5*60*1000});
-    return data;
+    if (page > 1) throw new PlaybackError('沒有更多集數。', 404);
+    const data = await loadSeriesPage(Number(id));
+    return { title: title || data.title, episodes: data.episodes.map(e => ({ url: e.url, title: e.title, label: e.label })), nextPage: null, airing: data.airing };
+}
+export async function listEpisodes(input, page = 1) {
+    if (!Number.isInteger(page) || page < 1 || page > 100) throw new PlaybackError('集數列表頁碼無效。', 400);
+    const { series } = episodeParts(input);
+    return listSeriesEpisodes(series, null, page);
 }
 export async function streamMedia(request) {
     const id = new URL(request.url).searchParams.get("id") || "";
@@ -386,10 +353,17 @@ export async function streamMedia(request) {
     if (range && (!/^bytes=(?:\d+-\d*|-\d+)$/.test(range) || range.length > 80))
         throw new PlaybackError("不支援此影片範圍請求。", 416);
     const ticket = await getSession("https://anime1.me/" + id);
-    const headers = new Headers({ Cookie: ticket.cookie, Referer: ticket.pageUrl });
+    const headers = new Headers({ Referer: SOURCE + "/" });
     if (range)
         headers.set("Range", range);
-    const response = await upstream(ticket.url, { method: request.method === "HEAD" ? "HEAD" : "GET", headers });
+    let response = await upstream(ticket.url, { method: request.method === "HEAD" ? "HEAD" : "GET", headers });
+    for (let hops = 0; [301, 302, 303, 307, 308].includes(response.status) && hops < 2; hops++) {
+        const next = new URL(response.headers.get("Location") || "", ticket.url);
+        void response.body?.cancel();
+        if (next.protocol !== "https:" || next.port || next.username || next.password)
+            throw new PlaybackError("影片伺服器轉址無效。");
+        response = await upstream(next.href, { method: request.method === "HEAD" ? "HEAD" : "GET", headers });
+    }
     const output = new Headers({ "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer", "Cross-Origin-Resource-Policy": tvAppRequest(request) ? "cross-origin" : "same-origin" });
     if (response.status === 416) {
         const cr = response.headers.get("Content-Range");
